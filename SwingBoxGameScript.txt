@@ -1,0 +1,3128 @@
+using UnityEngine;
+using System.Collections;
+using System.Collections.Generic;
+using Convert = System.Convert;
+
+public delegate void OnCorrectMove();	
+
+[System.Serializable]
+public class Level
+{
+	public string 	beatSound;
+	public string 	transitionSound;
+	public string 	comboZoneSound;
+	public int		consecutivesCorrectToPlay;
+	public int		maxRoundsToPlay;
+	public float	ColorsPerBeatLoop;
+	public float	ArcadeColorsPerBeatLoop;
+	public float 	aracdeLevelTime;
+}
+
+
+public enum GameType
+	{
+		Arcade,
+		Survival
+	}
+
+public class SwingGame : MonoBehaviour 
+{
+	public enum PlayType
+	{
+		Regular,
+		Combo
+	}
+		
+	public TutorialManager			tutorial;
+	public PopupNotifications 		notification;
+	public AudioPlayer 				audioPlayer;
+	public SwingScore				scoreManager;
+	public SwingBox					swingBox;
+	public Scroller					bgScroller;
+	public BattaryManager			livesManager;
+	public ColorFader				colorFader;
+	public PauseManager				pauseManager;
+	public NotificationParticles	notificationParticels;
+	public ComboParticles			comboParticles;
+	public IPhoneManager			iphoneManager;
+	public Inventory				inventory;
+	public ActionTimer				actionTimerManager;
+	public ItemUsed					itemUsed;
+	public GameObject				Fader;
+	public GameObject				powerTab;
+	public GameObject				timeCounterObject;
+	public GameObject				timerTab;
+	public TimerTab					timerTabFreezer;
+	public Texture[]				swingBoxTextures;
+	
+	public ParticleSystem	consecutiveCombosParticles;
+	
+
+	public int						arcadeStartingLevel;
+	
+	public float					currLevelTime;
+	
+	public GameType 				gameType;	
+	public int						timerStartSeconds;
+	public int						currentLevel;
+	public float 					normalEmittion;
+	public float					comboZoneEmisstion;
+	public float					successEmittion;
+	public float					timeToEmptyNotesStack;
+	public float					minNotesStack;
+	public bool 					actionFlag;
+	public bool 					actionMade;
+	public bool						dontPlayNotesCombo;
+	public bool 					isDuringButtonMania; 
+	public bool 					returnedFromButtonMania; 
+	
+	public BitParticle[]			bitParticle;
+	public Level[]					levels;
+
+	private float			currNotesGathered;
+	private	float			lastCountOfNotesGathered;
+	
+	private string			currLevelBeatSound;
+	private string			currLevelComboZoneSound;
+	private string			currLevelTransition;
+	
+	private string 			prefGameType;	
+	private bool			waitingForRegularTurnResponse;
+	private float 			timeToWaitForComboNextColor;
+	private float			waitToEmptyNotesStack;
+	private	float			notesStackCounter;
+	private System.Int64 	correctMoves;
+	private bool 			comboMoveContinues;
+	private Timer			timeCounter;
+	private int				timer;
+	public int				roundsLeftToNextLevel;
+	public Membrane			currentColor;
+	private Membrane		nextColor;
+	private float			responseTime;
+	private float			minimumSlackTime;
+	private float 			turnTime;
+	private bool			canMove;
+	private bool			colorMatch;
+	private bool			boxStopped = true;
+	private Queue			comboSequence = new Queue();
+	private PlayType		playType;
+	private bool 			isLevelCompleted;
+	private string			previousTransitionMusic;
+	private bool			isStartingGame;
+	private bool			isComboOn;
+	private bool 			isComboNextMove = false;
+	private int 			comboMoveLength = 1;
+	private float 			musicLength;
+	private float			moveBlockTime;
+	private bool			returnedFromComboTurn = false;
+	private bool			isDuringTransition;
+	private bool			isGameOver;
+	private Vector2			notesStackButtonTouchPosition;
+	private System.Int64	gameCenterCorrectMoves;
+	private bool			levelFinished; 	
+	private int 			correctMovesInLevel;
+	private int				consecutivesCombos;
+	private float  			comboZoneSoundInterval;
+	private float 			timeToWaitFirstColorInCombo;
+	private int 			actionCounter = 0;
+	private float			actionNumber = 0;
+	private int 			actionCounterInCombo = 0;
+	private float 			actionNumberInCombo = 0;
+	private int				currentCorrectCombos = 0;
+	private int				gameTime = 0;
+	private float 			timeToNextTurn;
+	private bool			isComboOnDuringRegularTurn;
+	private int				turnsAfterCombo = 0;
+	private int				tutorialPref;
+	
+	private float			noteNumber;
+	private System.Int64 	previousCorrectMoves;
+	private Queue 			notesSequence = new Queue();
+	private bool			isPlayingNotesSequence;
+	
+	private bool			isDuringInventoryPopup;
+	private float			antiPowerOffsCount;
+	private bool			isExtraTimeOnNotes3;
+	
+	private bool			tutorialCombo;
+	private bool			isDuringTutorial;
+	private bool			isDuringColorTutorial;
+	private bool			isFreeze;
+	
+	private bool			returnedFromTutorial;
+	private int				tutorialWaveSize = 2;
+	private bool 			firstTutorialCombo = true;
+	
+	private string			failSound = "Fail";
+	public bool				isWithAds;
+		
+	private float			notificationPopupTimeDefault;
+	private float			defaultTimeToEmptyNotesStack;
+	
+	//achievements variables
+	private bool 			hadPoweroff; 
+	private bool 			lostPower;
+	private int 			longestCombo;
+	private int 			longestCombosRow;
+	private int				highestScoreWithoutLoosingPower;
+	private int 			lastPowerLostScore;
+	private int 			highestScoreWithoutPowerOff;
+	private int				lastPowerOffScore;
+
+	
+	public 	bool 			CanMove 
+	{
+		get { return canMove; }
+		set 
+		{ 
+#if UNITY_IPHONE
+	if ( value == false )
+		{
+			iphone.MoveOff();
+			swingBox.Locked = true;
+		}
+		else
+		{
+			iphone.MoveOn();
+			swingBox.Locked = false;
+		}
+#endif
+		canMove = value; 
+		}
+	}
+
+#if UNITY_IPHONE	
+	private IPhoneManager	iphone;
+#endif
+	
+	void Start()
+	{
+
+		iPhoneSettings.screenCanDarken = false;
+		
+		if (!iPhoneUtils.isApplicationGenuine)
+			Application.LoadLevel("Locked");
+				
+		//----- shader and texture performance configuration ----//
+		
+		//ipad mini
+		if (Screen.width == 1024 && iPhone.generation != iPhoneGeneration.iPad1Gen) //iPad mini (same as iPad1/2 that's why !=)
+		{
+			GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Specular"); 
+			GameObject.FindWithTag("SwingBox").renderer.material.mainTexture = swingBoxTextures[0];
+		}
+		
+		switch ( iPhone.generation)
+		{
+		case iPhoneGeneration.iPhone3G: 
+		GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Diffuse");  
+		break;
+		case iPhoneGeneration.iPhone3GS: 
+		GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Diffuse");  
+		break;
+		case iPhoneGeneration.iPhone4: 
+			GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Diffuse");  
+		break;
+		case iPhoneGeneration.iPhone4S: 
+			GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Specular");  
+		break;
+		case iPhoneGeneration.iPad1Gen: 
+			GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Diffuse"); 
+			//GameObject.FindWithTag("SwingBox").renderer.material.mainTexture = swingBoxTextures[0];
+		break;
+		case iPhoneGeneration.iPad2Gen: 
+			GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Specular"); 
+			//GameObject.FindWithTag("SwingBox").renderer.material.mainTexture = swingBoxTextures[0];
+		break;
+		case iPhoneGeneration.iPad3Gen: 
+		GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Specular");  
+		break;
+		case iPhoneGeneration.iPhone5: 
+		GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Specular");  		
+		break;
+		}
+		
+		if (Screen.width == 2048) //ipad 4
+		{
+			GameObject.FindWithTag("SwingBox").renderer.material.shader = Shader.Find("Reflective/Specular");  
+		}
+		
+		StartCoroutine(Initialize());
+	}
+	
+	// notification of sound and graphics for when the player tries to move the SwingBox while he can't. 
+	public void cantMoveNotification()
+	{
+		if (!swingBox.duringCantMoveShake && !swingBox.isDuringPush && !isDuringButtonMania)
+		{
+			swingBox.cantMoveShake();
+			audioPlayer.PlaySound("CantMove", false);
+		}
+	}
+          
+	void Update()
+	{
+		
+//#if !UNITY_IPHONE
+		if (!pauseManager.paused && !swingBox.duringCantMoveShake)
+		{
+			// check when can't move & player made action -> cant move notification 
+			if ( !CanMove || isStartingGame )
+			{
+				if ( Input.GetKeyDown(KeyCode.UpArrow)  || Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.LeftControl) )
+					cantMoveNotification();
+			}
+			
+			else // if can move -> handle key.
+			{
+				if ( Input.GetKeyDown(KeyCode.UpArrow) )
+					HandleKey(KeyCode.UpArrow);
+				
+				if ( Input.GetKeyDown(KeyCode.DownArrow) )
+					HandleKey(KeyCode.DownArrow);
+				
+				if ( Input.GetKeyDown(KeyCode.LeftArrow) )
+					HandleKey(KeyCode.LeftArrow);
+			
+				if ( Input.GetKeyDown(KeyCode.RightArrow) )
+					HandleKey(KeyCode.RightArrow);
+				
+				if ( Input.GetKeyDown(KeyCode.Space) )
+					HandleKey(KeyCode.Space); 
+			}
+		}
+//#endif		
+
+	}
+	
+	private void HandleKey(KeyCode keyCode)
+	{
+		tutorial.KillCurrentTutorialStep();
+
+		if (!isComboOn) // during regularTurn
+		{
+			actionCounter++;
+			
+			if ( Mathf.FloorToInt(actionCounter/6) % 2 == 0 )
+				actionNumber = (actionCounter%6 == 0f) ? 1f : (actionCounter%6);
+			else
+				actionNumber = (actionCounter%6 == 0f) ? 6f : (7f- actionCounter%6);
+		
+			// play the action sound depending on its place in the combo actions sequence (effect of rising notes sound play)
+			string actionSound = "Action"+actionNumber.ToString();
+			audioPlayer.PlaySound(actionSound, false);
+		}
+		
+		else // during comboZone
+		{
+			actionCounterInCombo++;
+
+			if ( Mathf.FloorToInt(actionCounterInCombo/6) % 2 == 0 )
+				actionNumberInCombo = (actionCounterInCombo%6 == 0f) ? 1f : (actionCounterInCombo%6);
+			else
+				actionNumberInCombo = (actionCounterInCombo%6 == 0f) ? 6f : (7f- actionCounterInCombo%6);
+		
+			// play the action sound depending on its place in the consecutive right actions sequence (effect of rising notes sound playing)
+			string actionSound = "ComboAction"+actionNumberInCombo.ToString();
+			audioPlayer.PlaySound(actionSound, false);
+			
+		}
+		 
+		// make the buttons action
+		swingBox.OnGameButton(keyCode, isComboOn);
+	}
+	
+	public IEnumerator Initialize()
+	{		
+		notificationPopupTimeDefault = notification.popupTime;
+		defaultTimeToEmptyNotesStack = timeToEmptyNotesStack;
+		
+		if (PlayerPrefs.GetInt("NotFistGame") != 1)
+			PlayerPrefs.SetInt ("NotFirstGame",1);
+			
+		FireNameOfCollidy collideStatus = GameObject.Find("FrontCollider").GetComponent<FireNameOfCollidy>();
+#if UNITY_IPHONE
+		iphone = GameObject.Find("IPhoneManager").GetComponent<IPhoneManager>();
+		iphone.onKeyDown 				+= HandleKey;
+		iphone.onRotateAroundAxis 		+= HandleIphoneOnRotateAroundAxis;
+		swingBox.onRotationLocked		+= HandleBoxRotationLocked;
+#endif
+		collideStatus.onMembraneRotated += HandleMembraneRotated;
+		collideStatus.onFrontWasTouched += HandleBoxTouched;
+		swingBox.onBoxStopped 			+= HandleBoxStopped;
+		swingBox.onBoxStarted			+= HandleBoxStarted;
+		swingBox.onBoxShakeingDone		+= HandleBoxShaken;
+		bgScroller.onButtonClicked		+= HandleButtonClicked;
+		
+		useGUILayout = false;
+
+		previousCorrectMoves = (PlayerPrefs.HasKey("TotalCorrectMoves")) ? (System.Int64)(PlayerPrefs.GetInt("TotalCorrectMoves")) : 0;
+
+		GameObject fadeScreen = Instantiate(Fader) as GameObject;
+		fadeScreen.GetComponent<Fader>().fadeOut();
+		
+		antiPowerOffsCount = PlayerPrefs.GetFloat("AntiPowerOffs");
+					
+		// decide game type
+		prefGameType = PlayerPrefs.GetString("GameType");
+		if (prefGameType == "Survival")
+		{
+			gameType = GameType.Survival;
+		}
+		if (prefGameType == "Arcade")
+		{
+			gameType = GameType.Arcade;
+		}
+		// default play is in Survival mode
+		if (  (!(prefGameType == "Arcade") && !(prefGameType == "Survival") ) || !(PlayerPrefs.HasKey("GameType")) )
+		{
+			gameType = GameType.Survival;
+		}
+		
+		if (gameType == GameType.Arcade)
+		{
+			bgScroller.setPlatesToArcadeSpeed((float)(arcadeStartingLevel)*0.002f);
+			failSound = "ArcadeFail";
+		}
+		
+		yield return null;
+		NewGame();
+	}
+	
+	public void NewGame()
+	{
+		ResetData();
+		
+		StartCoroutine(StartNextLevel());
+		
+		// arcade mode initializations (changes from survival mode)
+		if ( gameType == GameType.Arcade )
+		{
+			livesManager.guiTexture.enabled = false;
+			powerTab.guiTexture.enabled = false;
+			timerTab.guiTexture.enabled = true;
+			timer = timerStartSeconds;
+			timeCounter = (Timer)((Instantiate(timeCounterObject) as GameObject).GetComponent<Timer>());
+		}
+		
+		//StartCoroutine(gameClock()); // for statistics
+	}
+	
+	private void ResetData() // new game initialization (replay or start of game from menu)
+	{
+		// reset tutorial if it wasn't fully completed
+		if (!isColorTutorialComplete() || ( isColorTutorialComplete() && !isTutorialComplete() ) )
+			tutorial.ResetTutorial();
+		
+		notification.popupTime = notificationPopupTimeDefault;
+		timeToEmptyNotesStack = defaultTimeToEmptyNotesStack;
+		tutorialWaveSize = 2;
+		
+		if (prefGameType == "Survival")
+		{
+			currLevelBeatSound = levels[currentLevel].beatSound; 
+			currLevelComboZoneSound = levels[currentLevel].comboZoneSound;
+		}
+		if (prefGameType == "Arcade")
+		{
+			currLevelBeatSound = levels[currentLevel].beatSound; 
+			currLevelComboZoneSound = levels[currentLevel].comboZoneSound;
+		}
+		StopAllCoroutines();
+		
+		if (isWithAds)
+		{
+			AdBinding.destroyAdBanner();	
+			AdBinding.initializeInterstitial();
+		}
+				
+		colorFader.StopFading(minimumSlackTime);
+		resetComboZone();
+		resetNotesStack();
+		resetPlayNotes();
+		tutorial.KillCurrentTutorialStep();
+		
+		/*currentLevel 			= -1;
+		
+		if ( gameType == GameType.Arcade )
+		 currentLevel = arcadeStartingLevel-2;*/
+		
+		currentLevel 				= ( gameType == GameType.Arcade ) 			? arcadeStartingLevel-2 : -1;
+		returnedFromComboTurn 		= false;
+		levelFinished 				= false;
+		isGameOver 					= false;
+		correctMoves 				= 0;
+		correctMovesInLevel 		= 0;
+		CanMove 					= false;
+		isStartingGame 				= true;
+		previousTransitionMusic	 	= null;
+		consecutivesCombos 			= 0;
+		timer 						= timerStartSeconds;
+		currentCorrectCombos		= 0;
+		gameTime 					= 0;
+		actionCounter 				= 0;
+		colorMatch 					= false;
+		actionFlag 					= false;
+		actionMade 					= false;
+		currNotesGathered 			= 0f;
+		lastCountOfNotesGathered	= (PlayerPrefs.HasKey("NotesGathered") ) 	? PlayerPrefs.GetFloat("NotesGathered") : 0f;
+		tutorialPref				= (PlayerPrefs.HasKey("Tutorial")) 	? PlayerPrefs.GetInt("Tutorial") : 0;
+		isDuringTutorial			= ((int)TutorialStep.Done == tutorialPref) 	? false : true;
+		turnsAfterCombo 			= 0;
+		isDuringButtonMania 		= false; 
+		returnedFromButtonMania 	= false;
+		isDuringTransition 			= false;
+		isComboOnDuringRegularTurn 	= false;
+		
+		hadPoweroff					= false;
+		lostPower					= false;
+		longestCombo				= 0;
+		longestCombosRow			= 0;
+		highestScoreWithoutLoosingPower = 0;
+		lastPowerLostScore			= 0;
+		highestScoreWithoutPowerOff = 0;
+		lastPowerOffScore  			= 0;
+		
+		itemUsed.extraTimeOff();
+		actionTimerManager.setEmpty();
+		isColorTutorialComplete();
+		bgScroller.stopButtonMania();
+		bgScroller.resetButtonsCount();
+		scoreManager.ResetScore();
+		livesManager.Reset();
+		audioPlayer.StopAllPlayingSounds();
+		startEmittion(normalEmittion);
+		
+		// check if to use extraTimeOnNotes3
+		if (inventory.currExtraTime() > 0 && gameType == GameType.Arcade)
+		{
+			StartCoroutine(ExtraTimeOnNotes3());
+			isExtraTimeOnNotes3 = true;
+		}
+		else
+			isExtraTimeOnNotes3 = false;
+		
+		
+		Time.timeScale = 1.0f;
+		swingBox.startAnim();	
+	}
+	
+	private IEnumerator StartNextLevel()
+	{
+		string 	transitionMusic;
+		
+		isDuringTransition 	= true;
+		
+		// reset the small waves after combo effect (case this is first level of survival make it like after combo, 1 button)
+		turnsAfterCombo		= (gameType == GameType.Survival && currentLevel == -1) ? 2 : 0; 
+		
+		if ( currentLevel < (levels.Length - 1) )
+			currentLevel++;
+		
+		if ( ( currentLevel > 0 ) && !isStartingGame )
+		{			
+			scoreManager.levelUp();
+			bgScroller.speedUpPlates(0.002f, true);
+		}
+		
+		roundsLeftToNextLevel = levels[currentLevel].consecutivesCorrectToPlay;
+		
+		if (gameType == GameType.Arcade && !isDuringTutorial)
+		{
+			//currLevelTime = levels[currentLevel].aracdeLevelTime;
+			StopCoroutine("levelTimerCountdown");
+			StartCoroutine("levelTimerCountdown",levels[currentLevel].aracdeLevelTime);
+		}
+			
+		// stop the sounds of the current level
+		if ( previousTransitionMusic != null )
+		{
+			audioPlayer.StopPlayingSound(currLevelBeatSound);
+			audioPlayer.StopPlayingSound(currLevelComboZoneSound);
+		}
+		
+		if (prefGameType == "Survival")
+		{
+			currLevelBeatSound = levels[currentLevel].beatSound; 
+			currLevelComboZoneSound = levels[currentLevel].comboZoneSound;
+		}
+		if (prefGameType == "Arcade")
+		{
+			//currLevelBeatSound = levels[currentLevel].beatSound; 
+			//currLevelComboZoneSound = levels[currentLevel].comboZoneSound;
+			currLevelComboZoneSound = "Arcade"+levels[currentLevel].comboZoneSound; 
+			currLevelBeatSound = "Arcade"+levels[currentLevel].beatSound; 
+
+
+		}
+		
+		// set level variables
+		moveBlockTime 				= audioPlayer.SoundLength(currLevelBeatSound) / levels[currentLevel].ColorsPerBeatLoop;
+		if (prefGameType == "Arcade")
+			moveBlockTime 			= audioPlayer.SoundLength(currLevelBeatSound) / levels[currentLevel].ArcadeColorsPerBeatLoop;
+		
+		comboZoneSoundInterval		= moveBlockTime/4f; // this is the places where comboZone can replace the level's beatSound so it will continue the right rythm
+		responseTime				= 0.55f * moveBlockTime;
+		swingBox.TurnTime 			= 0.225f * moveBlockTime; 
+		minimumSlackTime			= 0.225f * moveBlockTime; 
+		turnTime					= 0.225f * moveBlockTime;
+		returnedFromComboTurn		= false;
+		levelFinished				= false;
+		correctMovesInLevel			= 0;
+		
+		//reset gyroscope before next move (to prevent situation where strong movment usally iphone orientation change, result in changing gyro measurment mode)
+		Input.gyro.enabled = false;
+		Input.gyro.enabled = true;
+		
+		//if ( previousTransitionMusic != null )
+		//	audioPlayer.StopAllPlayingSounds();
+		
+		// Decide on the transition music
+		if ( isStartingGame )
+		{
+			transitionMusic = "StartMusic";
+
+			if (prefGameType == "Arcade")
+				transitionMusic = "ArcadeStartMusic";
+				//transitionMusic = "StartMusic";
+		}
+		else // trasition between levels
+		{
+			transitionMusic = levels[currentLevel].transitionSound;
+			
+			if (prefGameType == "Survival")
+				transitionMusic = levels[currentLevel].transitionSound; 
+			if (prefGameType == "Arcade")
+				//transitionMusic = levels[currentLevel].transitionSound; 
+				transitionMusic = "Arcade"+levels[currentLevel].transitionSound; 
+			
+			
+			musicLength = audioPlayer.SoundLength(transitionMusic);
+			swingBox.RandomRotate(musicLength);
+			swingBox.Shake(musicLength);
+			
+			// reset consecutive correct moves before next level
+			scoreManager.ResetConsecutiveLevelMoves();
+				
+		}
+		
+		// Play transition music
+		audioPlayer.PlaySound(transitionMusic, false);
+		
+		// Fetch the duration of the music clip
+		musicLength = audioPlayer.SoundLength(transitionMusic);
+		
+//		Debug.Log("sound time = " + musicLength);
+		
+		// Wait till music ends
+		// Wait before the music ends inorder to load the next clip little bit before end - to avoid delay in soundtrack flow.
+		yield return new WaitForSeconds(musicLength*0.7f); 
+		previousTransitionMusic = transitionMusic;
+		
+		isLevelCompleted 	= false;
+		
+				
+		//-- check if to start tutorial or regular turn --//
+		
+		if (gameType == GameType.Survival && PlayerPrefs.GetInt("HelpScreenOnClassicTutorial") != 1)
+		{
+			if (PlayerPrefs.GetInt("HelpScreenOnArcadeTutorial") == 1) // meaning tutorial was completed already in arcade mode so show only 2 slides
+				pauseManager.loadHelpScreen(false,3,7);
+			else // regular
+				pauseManager.loadHelpScreen(false,0,2);
+		}
+		
+		if (gameType == GameType.Arcade && PlayerPrefs.GetInt("HelpScreenOnArcadeTutorial") != 1)
+		{
+			if (PlayerPrefs.GetInt("HelpScreenOnClassicTutorial") == 1) // meaning tutorial was completed already in classic mode so show only 2 slides
+				pauseManager.loadHelpScreen(false,3,7);
+			else // regular
+				pauseManager.loadHelpScreen(false,0,2);
+		}
+
+		if (!isDuringTutorial)
+			StartCoroutine("RegularTurn");	
+		else
+		{	
+			notification.popupTime = notification.popupTime *3f;
+		
+			StartCoroutine("TutorialTurn");	
+		}
+		
+		// for the first move of the game - otherwise is controled from swingbox
+		yield return new WaitForSeconds(musicLength*0.28f);
+		//CanMove = true; // for the first move of the game - otherwise is controled from swingbox
+		isDuringTransition  = false;
+
+	}
+	
+	private IEnumerator RegularTurn()
+	{		
+		float 	waitForResponse;
+		float	slackTime;
+		
+		// start of regularTurn after Transition/Starting music
+		if (!returnedFromComboTurn && !returnedFromButtonMania)
+		{
+			// Play current beat
+			// Load the beat with delay - to avoid delay in soundtrack (that happended when loading after the beat before ended)
+			audioPlayer.PlaySound(currLevelBeatSound, musicLength*0.28f,false);  //0.28 test3 0.26
+			
+			// wait before starting next move.
+			yield return new WaitForSeconds(musicLength*0.28f); //0.28 test3
+		}
+				
+		// finished combo and there is no combo following this one -> continue with regularTurn and disable the returnFromCombo
+		if ( (returnedFromComboTurn)  && (!(isComboNextMove)) )
+			returnedFromComboTurn = false;
+		
+		returnedFromButtonMania = false;
+
+		
+		if (isStartingGame)
+		{
+			isStartingGame = false;
+			CanMove =true;
+			
+			if (gameType == GameType.Arcade)
+				StartCoroutine("timerCountdown");
+		}
+		
+		if ( isLevelCompleted ) // can happan when returned from button mania in levelCompleted.
+			StartCoroutine(StartNextLevel());
+			
+		while ( !isLevelCompleted )
+		{				
+			
+			if (isComboNextMove && !isDuringButtonMania) 
+			{
+				StartCoroutine ("StartComboZone", comboMoveLength);
+				yield break;
+			}
+			
+			nextColor = NextMembrane(currentColor);
+			iphoneManager.changeViewPortSection(nextColor.GetScreenSection());
+			
+			startEmittion(normalEmittion);
+			
+			// Set the time to wait for the user to make his move
+			waitForResponse = responseTime;
+			
+			// Play next color sound & display the indication
+			audioPlayer.PlaySoundNoFadeIn(nextColor.Name, false);
+			
+			actionTimerManager.setFull();
+			actionTimerManager.startEmptyActionTimer(responseTime);
+			colorFader.FadeTo(nextColor.color, responseTime);
+			notificationParticels.play(nextColor,isFreeze);
+			
+			waitingForRegularTurnResponse = true;
+						
+			timeToWaitForComboNextColor = 0f;
+			
+			while ( !swingBox.isDuringPush && !swingBox.isDuringRotation && waitForResponse > 0 )
+			{ 
+				waitForResponse -= Time.deltaTime;
+				yield return null;
+				timeToWaitForComboNextColor += Time.deltaTime;
+			}
+			
+			if (actionMade) // actionMade is set true from swingBox when the box turns
+			{
+				while (!actionFlag || (notesStackCounter > 0) ) // wait until the actionFlag (collider activated) is raised and wait if the player is in the middle of catching combo to the start of the combo
+					yield return null;			
+			}	
+			
+			colorFader.StopFading(waitForResponse + turnTime + minimumSlackTime);
+						
+			// Was input received during wait? if yes, wait for the box to finish turning
+			if ( actionMade )
+			{
+				actionTimerManager.stopEmptyActionTimer();
+
+				// Wait until the box has stopped AND not in middle of noteCombo strike
+				while( !boxStopped && (swingBox.isDuringPush || swingBox.isDuringRotation) )
+				{
+					yield return null;
+				}
+			}
+			
+			waitingForRegularTurnResponse = false; // the time to activate consecutive comboZone is finished
+			
+			// if comboZone OR buttonMaina was activated wait untill it stops this coroutine
+			while (isComboOnDuringRegularTurn || isDuringButtonMania)// || notesStackCounter>0)
+			{
+				yield return null;
+			}
+			
+			// stop comboZone after the first regularTurn after it, if no comboZone was activated before the move finish
+			if (isComboOn && !isComboNextMove)
+			{
+				resetComboZone();
+				
+				if (!returnedFromTutorial)
+					turnsAfterCombo = 1;
+				else
+					returnedFromTutorial = false;
+			}
+
+
+			// User made a fault (no response or wrong response)
+			if ( !colorMatch || !actionMade )
+			{				
+				// reset variables on failing
+				scoreManager.ResetConsecutiveMoves();
+				scoreManager.ResetMultiplier();
+				actionCounter 	= 0;
+				
+				slackTime 		= audioPlayer.playBack(currLevelBeatSound, moveBlockTime);
+				// extend slacktime in case of wrong action in short slacktime - to make sure user understand fault
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				
+				StartCoroutine(resetComboZoneWithDelay());
+				
+				// fail sound, graphic and vibrate effect
+				swingBox.Shake(slackTime);
+				#if UNITY_IPHONE
+					//if (gameType == GameType.Survival) { iPhoneUtils.Vibrate(); }
+				#endif
+				audioPlayer.PlaySound(failSound, false);
+				StopEmittion();
+				
+				// Check lives
+				if (!(gameType == GameType.Arcade))
+					if ( !livesManager.HasLives() ) // GAME OVER!
+						isGameOver = true;
+			}
+			
+			// 2. User acted correctly -
+			else 
+			{						
+				slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime);
+				swingBox.RandomRotate(slackTime);
+				correctMoves++;
+				correctMovesInLevel++;
+				changeSpeakerEmittionTo(successEmittion, slackTime);
+				scoreManager.RegularMove();
+				
+			}
+				
+
+			if ( !isGameOver) // next turn
+			{		
+				if (colorMatch) // check level complition only on correct move
+					isLevelCompleted = CheckLevelCompletion(audioPlayer.playBackOfTotalClip(currLevelBeatSound));
+				
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+				swingBox.TurnTime		= 0.24f * moveBlockTime;
+				
+				yield return new WaitForSeconds(slackTime); 
+				
+				if ( isLevelCompleted )
+					StartCoroutine(StartNextLevel());
+					
+			}
+			else // GAME OVER!
+			{
+				isLevelCompleted = true; // end the loop of colors
+				stopMinusPointsEffect();
+		    	StartCoroutine(gameOver());
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+			}	
+		}
+	}
+	
+	private IEnumerator ComboTurn()
+	{
+		float 	waitForResponse;
+		float 	slackTime;
+		int 	comboLength 	= comboSequence.Count;	
+		comboMoveContinues 		= true;
+		swingBox.TurnTime 		= 0.5f * (moveBlockTime / 4f ); // 4 colors per block 
+		
+		slackTime = 0f; // define for later use with islevelcomplete
+		
+		waitForResponse = responseTime; //(moveBlockTime /2f);
+			
+		// case this is comboDuringRegularTurn and the first action was already made in the regular tunr
+		if (isComboOnDuringRegularTurn && actionMade) 
+		{
+			waitingForRegularTurnResponse = false;
+
+			while( !boxStopped && (swingBox.isDuringPush || swingBox.isDuringRotation) )		
+			{ 
+				yield return null;
+			}
+			
+			if ( colorMatch && actionMade ) // 1. First color match
+			{	
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+				nextColor 	= comboSequence.Dequeue() as Membrane;
+				iphoneManager.changeViewPortSection(nextColor.GetScreenSection());
+
+			}
+			else  // 2. No match for first color
+			{	
+				// stop comboZone
+				// stop the audio playing of the comobo colors and the color fading
+				//StopCoroutine ("playComboColors"); 
+				//StopCoroutine ("playComboColorsDuringRegularTurn");
+				//colorFader.StartCoroutine("StopFading", slackTime);
+				resetComboZone(); 				
+				
+				// Time to next beat is the remaining time of the currently playing beat.
+				// if the remaining time is lower then 0.3*blockTime wait and play the beatblock again
+				slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime); 
+								
+				// extend slacktime in case of wrong action in short slacktime - to make sure user understand fault
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				
+				//colorFader.StartCoroutine("StopFading", slackTime);
+				colorFader.StopFading(slackTime);
+
+				actionCounterInCombo = 0;
+				
+				audioPlayer.PlaySound(failSound, false); 
+				turnsAfterCombo = 1;
+				
+				swingBox.Shake(slackTime);
+				#if UNITY_IPHONE	 	
+					//if (gameType == GameType.Survival) { iPhoneUtils.Vibrate(); }
+				#endif
+				scoreManager.ResetConsecutiveMoves();
+				scoreManager.ResetMultiplier();
+					
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+				
+				// Check lives status
+				if (!(gameType == GameType.Arcade))
+				{
+					if ( !livesManager.HasLives() ) // GAME OVER! (set gameover true)
+					{
+						isGameOver = true;
+					}
+				}
+				
+				if ( !isGameOver )
+				{
+					yield return new WaitForSeconds(slackTime);
+				}	
+				
+			}
+		}
+				
+		// while in combo there is only waitForResponse time between colors (no use of slackTime)
+		while ( comboMoveContinues )
+		{
+			waitForResponse = responseTime;//moveBlockTime/2f;// responseTime;
+			
+			actionTimerManager.setFull();
+			actionTimerManager.startEmptyActionTimer(responseTime);
+			
+			nextColor 	= comboSequence.Dequeue() as Membrane;
+			iphoneManager.changeViewPortSection(nextColor.GetScreenSection());
+
+			//extra Measure to make sure comboZone music is playing
+			if (!audioPlayer.isPlaying(currLevelComboZoneSound) )
+				StartCoroutine("ComboSoundEffects");
+						
+			waitingForRegularTurnResponse = false;
+						
+			// Wait for the user to make his move
+			while ( !swingBox.isDuringPush && !swingBox.isDuringRotation && waitForResponse > 0 )
+			{ 
+				yield return null;
+				waitForResponse -= Time.deltaTime; 
+			} 
+						
+			// make sure to wait for the action's color before deciding - wrong or right
+			if (actionMade)
+			{
+				actionTimerManager.stopEmptyActionTimer();
+				
+				while (!actionFlag)
+				{
+					yield return null;
+				}
+			}
+			
+			// Was input received during wait? (shorten SlackTime while box turns)
+			if ( actionMade )
+			{
+				// Wait until the box has stopped
+				while( !boxStopped && (swingBox.isDuringPush || swingBox.isDuringRotation) )
+				{
+					yield return null;
+				}
+			}
+					
+			timeToNextTurn = audioPlayer.playBackOfTotalClip(currLevelBeatSound);
+			
+			// -------- Do we have a match Did the user act in time? -------////
+			// 1. User made correct move 
+			if ( colorMatch && actionMade )
+			{	
+				correctMoves++;
+				// 1.1 Still have more items in sequence?
+				if ( comboSequence.Count > 0 )
+				{	
+					scoreManager.RegularMove();
+					// set the waitForResponseTime for next move in sequence
+					waitForResponse = responseTime; //(moveBlockTime /2f);
+				}
+				
+				// 1.2 Successful combo - Combo sequence finished successfuly !
+				else
+				{		
+					// currNotesGathered += comboLength; // removed for every note counts logic
+					
+					// Time to next beat is the remaining time of the currently playing beat.
+					// if the remaining time is lower then 0.3*blockTime wait and play the beatblock again
+					slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime); 
+							
+					if (slackTime < moveBlockTime * 0.4f)
+						slackTime += moveBlockTime;
+					
+					// small extend to slacktime in case of short slacktime on correct combo
+					//if (slackTime < 1f)
+					//	slackTime += moveBlockTime;
+					
+					//correctMoves++;
+					currentCorrectCombos++;
+					correctMovesInLevel++;
+					scoreManager.ComboMove(comboLength,consecutivesCombos);
+					
+					if (longestCombo < comboLength)
+						longestCombo = comboLength;
+					
+					bgScroller.speedUpPlates(0.0025f, false);
+					
+					consecutivesCombos++; // first combo is 1
+					float comboSuccessSoundCounter = (consecutivesCombos%6 == 0f) ? 6f : (consecutivesCombos%6);
+					
+					if ( consecutivesCombos == 1 && prefGameType == "Survival") 
+						StartCoroutine(startConsecutiveCombosParticles());
+					if ( consecutivesCombos > 1 && prefGameType == "Survival")
+						increaseConsecutiveCombosParticles(1f);
+						
+					if (longestCombosRow < consecutivesCombos)
+						longestCombosRow = consecutivesCombos;
+					
+					actionCounterInCombo = 0;
+
+					comboMoveContinues = false;
+					
+					changeSpeakerEmittionTo(successEmittion+Mathf.Ceil(comboSuccessSoundCounter/2f), slackTime);
+					
+					audioPlayer.PlaySound("ComboSuccess"+comboSuccessSoundCounter, false);
+					swingBox.RandomRotate(slackTime);
+					
+					isLevelCompleted = CheckLevelCompletion(timeToNextTurn);
+
+					yield return new WaitForSeconds(slackTime); 
+				}
+				
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+			}
+			// 2. No match or failed to act in time
+			else 
+			{	
+				// stop comboZone
+				// stop the audio playing of the comobo colors and the color fading
+				//StopCoroutine ("playComboColors"); 
+				//StopCoroutine ("playComboColorsDuringRegularTurn");
+				resetComboZone(); 
+				
+				// Time to next beat is the remaining time of the currently playing beat.
+				// if the remaining time is lower then 0.3*blockTime wait and play the beatblock again
+				slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime); 
+
+				// extend slacktime in case of wrong action in short slacktime - to make sure user understand fault
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				
+				//colorFader.StartCoroutine("StopFading", slackTime);
+				colorFader.StopFading(slackTime);
+				
+				actionCounterInCombo = 0;				
+					
+				audioPlayer.PlaySound(failSound, false); 
+				turnsAfterCombo = 1;
+				
+				swingBox.Shake(slackTime);
+				#if UNITY_IPHONE	 	
+					//if (gameType == GameType.Survival) { iPhoneUtils.Vibrate(); }
+				#endif
+				scoreManager.ResetConsecutiveMoves();
+				scoreManager.ResetMultiplier();
+
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+				
+				// Check lives status
+				if (!(gameType == GameType.Arcade))
+				{
+					if ( !livesManager.HasLives() ) // GAME OVER! (set gameover true)
+					{
+						isGameOver = true;
+					}
+				}
+				
+				if ( !isGameOver )
+				{
+					yield return new WaitForSeconds(slackTime);
+				}	
+			}
+		}
+				
+		// comboZone finished  (with or without success)
+		if ( !isGameOver ) 
+		{
+			//if (colorMatch) // check level complition only on correct move
+			///	isLevelCompleted = CheckLevelCompletion(timeToNextTurn);
+	
+			isComboOnDuringRegularTurn = false;
+			
+			if ( !isLevelCompleted )  // level continues
+			{
+				returnedFromComboTurn 	= true;				
+				StartCoroutine("RegularTurn");
+			}
+			else  // finished level
+			{
+				//resetComboZone(); 
+				StartCoroutine(StartNextLevel());
+			}
+		}
+		else // GAME OVER!
+		{
+			stopMinusPointsEffect();
+			StartCoroutine(gameOver());
+		}
+		
+		yield return null;
+	}
+	
+	private bool CheckLevelCompletion(float timeToNextTurn)
+	{
+		
+		if (!levelFinished && !bgScroller.isDuringButtonMania && isTutorialComplete() ) // check if it's time to finish the level
+		{
+			if (gameType == GameType.Survival)
+				levelFinished = ( (scoreManager.returnConsecutiveLevelCorrectMoves() >= roundsLeftToNextLevel) || (correctMovesInLevel >= levels[currentLevel].maxRoundsToPlay) ) ? true : false;
+			if (gameType == GameType.Arcade)
+				levelFinished = ( currLevelTime <= 0f ) ? true : false;
+		}
+		
+		// level can complete only if there is no combo next and it is the end of the BeatSound (so it will not cut in the middle, for beats with more then 1 color)
+		if (gameType == GameType.Survival)
+			if (timeToNextTurn < moveBlockTime)
+				return (levelFinished); 
+		
+		if (gameType == GameType.Arcade)
+			//if ( timeToNextTurn < moveBlockTime )
+			return (levelFinished); 
+			
+		return false; // case next step is comboMove or this is not the right level beat music position to complete the level.
+
+	}
+	
+	public bool isReadyToFinishLevel() // returned true one turn before level is actually finished
+	{
+		if (gameType == GameType.Survival)
+			return ( (scoreManager.returnConsecutiveLevelCorrectMoves() >= roundsLeftToNextLevel-1) || (correctMovesInLevel >= levels[currentLevel].maxRoundsToPlay-1) ) ? true : false;		
+		
+		if (gameType == GameType.Arcade)
+			return ( (currLevelTime <= 4f || timer <= 4f) && !isFreeze) ? true : false;	
+		
+			
+		return false;
+	}
+	
+	private void fillNotesStack(Vector2 touchPosition, float notesCount)
+	{
+		currNotesGathered += notesCount;
+		notesStackButtonTouchPosition = touchPosition;
+		notesStackCounter += notesCount;
+		waitToEmptyNotesStack = timeToEmptyNotesStack;
+	}
+	
+	private void resetNotesStack()
+	{
+		notesStackCounter = 0f;
+		waitToEmptyNotesStack = 0f;
+	}
+	
+	private Membrane NextMembrane(Membrane currentMembrane)
+	{
+		int nextMembraneIndex = Random.Range(0,4);
+
+		return currentMembrane.adjacenttMembrane[nextMembraneIndex]; 
+	}
+	
+	// Decide what to do when a new membrane has been moved infront of us
+	private void HandleMembraneRotated(Membrane membrane)
+	{		
+		//waitingForRegularTurnResponse = false;
+		
+		currentColor = membrane;
+		
+		if ( nextColor != null && (currentColor.ID == nextColor.ID) && !isDuringTransition && !swingBox.isDuringRandomRotate && !isDuringButtonMania) // right move
+			{colorMatch = true; actionFlag = true; }//Debug.Log ("Right action =" + currentColor.name);}
+		if ( nextColor != null && (currentColor.ID != nextColor.ID) && !isDuringTransition && !swingBox.isDuringRandomRotate && !isDuringButtonMania) // wrong move
+			{colorMatch = false; actionFlag = true; }//Debug.Log("Wrong action =" + currentColor.name);}
+	}
+	
+	// Decide what to do when the box is touched
+	private void HandleBoxTouched()
+	{
+		//if ( !CanMove && !pauseManager.paused)
+		if (cantMoveBox())
+			cantMoveNotification();
+
+		//if ( CanMove && !pauseManager.paused)
+		if (canMoveBox())
+			HandleKey(KeyCode.Space);
+	}
+	
+	// Decide what to do when the box has stopped its move (rotation or push)
+	private void HandleBoxStopped()
+	{			 
+		boxStopped = true;	
+	}
+	
+	private void HandleBoxStarted()
+	{
+		boxStopped = false;
+	}
+	
+	
+	// Decide what to do when the player hits notesCombo
+	private void decideComboZoneType(int comboLength)
+	{					
+		comboLength = (comboLength > 20) ? 20 : comboLength; // maximum in button mania and in combo score dictionary
+			
+		actionCounter 	= 0; /// reset regular action counter for next regularTurn
+		turnsAfterCombo = 0;
+				
+		//---------//
+		// notesCombo hit while waiting for regular turn response
+		if (waitingForRegularTurnResponse && !isDuringButtonMania)
+		{			
+			isComboOnDuringRegularTurn 	= true;
+			isComboOn 					= true;
+			comboMoveLength 			= comboLength;	
+			StopCoroutine("RegularTurn");						
+			
+			// audio effects
+			if (!audioPlayer.isPlaying(currLevelComboZoneSound) )
+				StartCoroutine("ComboSoundEffects");
+			
+			// start comboZone graphic effects
+			StartCoroutine(bgScroller.platesComboZone(consecutivesCombos));
+			swingBox.startComboZone( (float)( ( ( (consecutivesCombos+1f) >= 6f) ? 6f : consecutivesCombos )  *0.215f) ); //0.25
+
+			comboParticles.play();
+			startEmittion(comboZoneEmisstion);
+
+			StartCoroutine(StartComboDuringRegularTurn(comboMoveLength));
+			
+			return;
+			
+		}
+		
+		//---------//
+		// notesCombo hit when another notesCombo is getting ready to start.
+		if (isComboNextMove)
+		{			
+			// change combo length only if new combo is higher then last one.
+			if (comboMoveLength < comboLength ) 
+				comboMoveLength = comboLength;
+
+			return;
+		}
+		
+		//---------//
+		// combo hit during transition, during comboZone, or comboZone activated during regular turn slack time
+		isComboNextMove 	= true;
+		comboMoveLength 	= comboLength;	
+			
+		if (isDuringTransition)
+		{
+			// play the sound effect after transition music
+			StartCoroutine(ComboSoundEffectsDuringTransition());
+		}
+		else
+		{
+			//combo sound effects
+			if (!audioPlayer.isPlaying(currLevelComboZoneSound) )
+				StartCoroutine("ComboSoundEffects");
+		}
+	
+		// start comboZone graphic effects
+		if (!isDuringButtonMania) // tomer test (if)
+		{
+			StartCoroutine(bgScroller.platesComboZone(consecutivesCombos));
+			swingBox.startComboZone( (float)( ( ( (consecutivesCombos+1f) >= 6f) ? 6f : consecutivesCombos )  *0.25f) );
+		}
+		
+		comboParticles.play();
+		startEmittion(comboZoneEmisstion);	
+	}
+	
+	private IEnumerator ComboSoundEffectsDuringTransition()
+	{
+		// wait after the transition
+		yield return new WaitForSeconds(audioPlayer.playBackOfTotalClip(levels[currentLevel].transitionSound));
+		//combo sound effects
+		audioPlayer.PlaySound(currLevelComboZoneSound, false);
+		audioPlayer.changeSoundVolumeTo(currLevelBeatSound, 0.0f);	//audioPlayer.StopPlayingSound(levels[currentLevel].beatSound);
+	}
+	
+	private IEnumerator ComboSoundEffects()
+	{
+		// wait after the transition
+		float slackTimeToComboSoundEffect; // need this time inorder to start to sound on the main level music beat
+		slackTimeToComboSoundEffect = audioPlayer.playBack(currLevelBeatSound, comboZoneSoundInterval);
+
+		yield return new WaitForSeconds(slackTimeToComboSoundEffect);
+		//combo sound effects
+		audioPlayer.PlaySound(currLevelComboZoneSound, false);
+		audioPlayer.changeSoundVolumeTo(currLevelBeatSound, 0.0f);	//audioPlayer.StopPlayingSound(levels[currentLevel].beatSound);
+
+	}
+	
+	public void resetComboZone()
+	{
+		StopCoroutine ("playComboColors"); 
+		StopCoroutine ("playComboColorsDuringRegularTurn");
+		
+		StartCoroutine(stopConsecutiveCombosParticles());
+		
+		// reset combo variables
+		actionCounterInCombo			= 0;
+		isComboOn 						= false;
+		comboMoveContinues 				= false;
+		isComboNextMove 				= false;	
+		waitingForRegularTurnResponse 	= false;
+		isComboOnDuringRegularTurn		= false;
+		comboMoveLength					= 1;
+		consecutivesCombos				= 0;
+		comboSequence.Clear();
+				
+		
+		// reset combo sound effects
+		StopCoroutine("ComboSoundEffects");
+		audioPlayer.changeSoundVolumeTo(currLevelBeatSound, 0.5f);  //audioPlayer.PlaySound(levels[currentLevel].beatSound, false);
+		audioPlayer.StopPlayingSound(currLevelComboZoneSound);
+		
+		//reset combo Graphic effects
+		StartCoroutine(bgScroller.stopPlatesComboZone());
+		
+		// plates speed go back to level speed (no comboSpeed added)
+		bgScroller.platesToDefaultSpeed();
+		
+		comboParticles.stop();
+		swingBox.resetComboZone();
+		StopEmittion();	
+	}
+	
+	
+	private IEnumerator gameOver()
+	{
+		float slackTime;
+		float musicLength = audioPlayer.SoundLength("GameOver");
+		
+		savePrefNotesGathered();
+		
+		resetComboZone();
+		
+		// disable pause
+		pauseManager.StartCoroutine("disablePauseButton");
+	
+		// stop buttons creation
+		bgScroller.stopCreatingButtons();
+		
+		// start ad banner.
+		if (isWithAds)
+			AdBinding.createAdBanner(true);
+
+		slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime);
+		
+		// slowdown shake and animation
+		swingBox.ShakeOnGameOver(slackTime+musicLength);
+		swingBox.changeAnimationSpeed((slackTime + musicLength), 0f);
+			
+		bgScroller.slowdownPlatesOnGameOver(slackTime + musicLength);
+		
+		//yield return new WaitForSeconds(slackTime);
+		
+		audioPlayer.StopAllPlayingSounds();
+		audioPlayer.PlaySound("GameOver", false);
+		yield return new WaitForSeconds(slackTime + musicLength);
+		
+		// stop all coroutines in swingbox before next game, makes sure swingbox returns to its original position after shake
+		swingBox.stopAnim();
+		
+		// send total swings count to gameCenter LeaderBoard
+		System.Int64 currentCorrectMoves = correctMoves + previousCorrectMoves;
+		PlayerPrefs.SetInt("TotalCorrectMoves", (int)currentCorrectMoves);
+		previousCorrectMoves = currentCorrectMoves;
+		if (GameCenterBinding.isPlayerAuthenticated())
+			GameCenterBinding.reportScore(currentCorrectMoves, MenuManager.StaticTotalSwings);//"grp.TotalSwingsFREE" );
+		
+		// send longest sequence of colors to gameCenter LeaderBoard
+		System.Int64 currentConsecutiveMoves = scoreManager.returnLongestMovesSequence();
+		
+		if ( (scoreManager.returnLongestMovesSequence() > PlayerPrefs.GetInt("LongestSequence")) || !PlayerPrefs.HasKey("LongestSequence") )
+			PlayerPrefs.SetInt("LongestSequence", (int)currentConsecutiveMoves);
+		
+		if (GameCenterBinding.isPlayerAuthenticated())
+			GameCenterBinding.reportScore(currentConsecutiveMoves, MenuManager.StaticSwingsSequence);//"grp.LongestSequenceFREE" );
+		
+		/*
+		if ( (scoreManager.returnLongestMovesSequence() > PlayerPrefs.GetInt("LongestSequence")) || !PlayerPrefs.HasKey("LongestSequence") )
+		{	
+			System.Int64 currentConsecutiveMoves = scoreManager.returnLongestMovesSequence();
+			PlayerPrefs.SetInt("LongestSequence", (int)currentConsecutiveMoves);
+		
+			if (GameCenterBinding.isPlayerAuthenticated())
+				GameCenterBinding.reportScore(currentConsecutiveMoves, "grp.LongestSequenceFREE" );
+		}
+		else
+		{
+			if (GameCenterBinding.isPlayerAuthenticated())
+				GameCenterBinding.reportScore( (System.Int64)scoreManager.returnLongestMovesSequence(), "grp.LongestSequenceFREE" );
+		}*/
+		
+		
+		// load pause menu 
+		startEmittion(comboZoneEmisstion);
+		pauseManager.ClickButton(true);//("true" means pause menu for gameover - with replay or quit)
+ 	}
+	
+	public int gameOverBonus()
+	{
+		return (int)(currentCorrectCombos*3 + correctMoves*2 + scoreManager.returnConsecutiveCorrectMoves() *4 + (int)(scoreManager.score/gameTime)*10); 	
+	}
+	
+	public int gameOverBonus1()
+	{
+		return (int)(correctMoves*2);
+	}
+	public int gameOverBonus2()
+	{
+		return (int)(currentCorrectCombos*3);
+	}
+	public int gameOverBonus3()
+	{
+		return (int)(scoreManager.returnConsecutiveCorrectMoves() *4);
+	}
+	public float gameOverBonus4()
+	{
+		return (float)((scoreManager.score/gameTime)*10);
+	}
+	
+	private IEnumerator StartComboZone(int comboLength)
+	{	
+		Queue comboPlaySequence = new Queue();
+		comboSequence			= new Queue();
+		isComboNextMove 		= false;
+		isComboOn 				= true;
+		Membrane tempMembrane 	= currentColor;
+					
+		for(int i=0; i<comboLength; i++)
+		{
+			tempMembrane = NextMembrane(tempMembrane);
+			comboSequence.Enqueue(tempMembrane);	
+			comboPlaySequence.Enqueue(tempMembrane);
+		}
+		
+		colorMatch = false;
+		actionFlag = false;
+		
+		StartCoroutine("ComboTurn");
+		
+		// playComboColors in difference Coroutine so i can stop it if combo fails in the middle
+		StartCoroutine("playComboColors", comboPlaySequence); 
+
+		yield break;
+	}
+	
+	private IEnumerator StartComboDuringRegularTurn(int comboLength)
+	{	
+		Queue comboPlaySequence 		= new Queue();
+		comboSequence					= new Queue();
+		isComboNextMove 				= false;
+		isComboOn 						= true;
+		Membrane tempMembrane 			= nextColor;
+		
+		// first color is the color already said in the regular move -> put it in the combo actions sequence, but not in the play sequence
+		comboSequence.Enqueue(nextColor);		
+		
+		for(int i=0; i<comboLength; i++)
+		{
+			tempMembrane = NextMembrane(tempMembrane);
+			comboSequence.Enqueue(tempMembrane);
+
+			comboPlaySequence.Enqueue(tempMembrane); // play (sound&color) sequence
+		}
+				
+		StartCoroutine("ComboTurn");
+		
+		// playComboColors in difference Coroutine so i can stop it if combo fails in the middle
+		float sequencePlayTime = ( (moveBlockTime/4f) > audioPlayer.SoundLength(nextColor.name) ) ? (moveBlockTime/4f) : audioPlayer.SoundLength(nextColor.name);
+
+		if ( audioPlayer.isPlaying(nextColor.name) )
+			yield return new WaitForSeconds(sequencePlayTime);//audioPlayer.playBackOfTotalClip(nextColor.name) ); //0.83 //wait to finish the color name sound
+		//else
+		//	yield return new WaitForSeconds(sequencePlayTime/2f);
+	
+		StartCoroutine("playComboColorsDuringRegularTurn", comboPlaySequence); 
+
+		yield return null;
+	}
+	
+	
+	private IEnumerator playComboColors(Queue comboPlaySequence)
+	{
+		int 	comboPlayLength = comboPlaySequence.Count;
+		
+		float	sequencePlayTime;
+		
+		Membrane tempPlayMembrane;
+			
+		for(int i=0; i<comboPlayLength; i++)
+		{
+			tempPlayMembrane = comboPlaySequence.Dequeue() as Membrane;
+			
+			sequencePlayTime = ( (moveBlockTime/4f) > audioPlayer.SoundLength(tempPlayMembrane.name) ) ? (moveBlockTime/4f) : audioPlayer.SoundLength(tempPlayMembrane.name);
+		
+			audioPlayer.PlaySound(tempPlayMembrane.name, false);
+			
+			// fading during combo inorder that the colors will smoothly fade from one to another without fading to original color inbetween
+			if (i < comboPlayLength - 1)
+			{
+				colorFader.FadeToDuringCombo(tempPlayMembrane.color, sequencePlayTime);//audioPlayer.SoundLength(tempPlayMembrane.name) );//0.9f* sequencePlayTime); // (*0.9) is for time where the same color comes in a row in the sequence and needs a pause between each other
+			}
+			else
+			{
+				colorFader.LastColorFadeToDuringCombo(tempPlayMembrane.color, sequencePlayTime);//audioPlayer.SoundLength(tempPlayMembrane.name) );//0.9f* sequencePlayTime); // (*0.9) is for time where the same color comes in a row in the sequence and needs a pause between each other
+			}
+				
+			notificationParticels.play(tempPlayMembrane,isFreeze);
+		
+			yield return new WaitForSeconds(sequencePlayTime);//audioPlayer.SoundLength(tempPlayMembrane.name)); //*0.83 //(sequencePlayTime);
+		}
+		
+		yield break;
+	}
+	
+	private IEnumerator playComboColorsDuringRegularTurn(Queue comboPlaySequence)
+	{
+		int 	comboPlayLength = comboPlaySequence.Count;
+		float	sequencePlayTime;
+		Membrane tempPlayMembrane;
+		
+		for(int i=0; i<comboPlayLength; i++)
+		{
+			tempPlayMembrane = comboPlaySequence.Dequeue() as Membrane;
+			
+			sequencePlayTime = ( (moveBlockTime/4f) > audioPlayer.SoundLength(tempPlayMembrane.name) ) ? (moveBlockTime/4f) : audioPlayer.SoundLength(tempPlayMembrane.name);
+						
+			audioPlayer.PlaySound(tempPlayMembrane.name, false);
+			
+			// use a different method for fading during combo inorder that the colors will smoothly fade from one to another without fading to original color inbetween
+			if (i < comboPlayLength - 1)
+				colorFader.FadeToDuringCombo(tempPlayMembrane.color, sequencePlayTime);//audioPlayer.SoundLength(tempPlayMembrane.name)); // *0.83 //sequencePlayTime);
+			else
+				colorFader.LastColorFadeToDuringCombo(tempPlayMembrane.color, sequencePlayTime);//audioPlayer.SoundLength(tempPlayMembrane.name) );//sequencePlayTime); 
+				
+			notificationParticels.play(tempPlayMembrane,isFreeze);
+		
+			yield return new WaitForSeconds(sequencePlayTime);//audioPlayer.SoundLength(tempPlayMembrane.name) );//0.83 //(sequencePlayTime);
+		}
+		
+		yield break;
+	}
+	
+	
+	private IEnumerator checkNotesStack(Vector2 touchPosition)
+	{
+		while ((waitToEmptyNotesStack > 0) || isPlayingNotesSequence )
+		{
+			yield return null;
+			waitToEmptyNotesStack -= Time.deltaTime;
+			
+		}
+			
+		if (notesStackCounter >= minNotesStack) // activate comboZone
+		{
+			if (!dontPlayNotesCombo)
+			{
+				scoreManager.notesCombo(notesStackCounter, notesStackButtonTouchPosition);		
+				decideComboZoneType((int)notesStackCounter);
+			}
+		}			
+			
+		notesStackCounter = 0;
+		
+		yield return null;
+	}
+	
+
+	private void HandleButtonClicked(ButtonType buttonType, Vector2 touchPosition)
+	{
+		string noteButton;
+		
+		switch ( buttonType )
+		{
+			
+		case ButtonType.ExtraLife:
+			if (!isGameOver)
+			{
+			livesManager.AddLife();
+			notification.IndicationText=SwingBoxTexts.text6+"\n"+SwingBoxTexts.text7;
+			notification.NotificationOn(touchPosition);
+			audioPlayer.PlaySound("ExtraLife", false);
+			}
+			break;
+			
+		case ButtonType.Bonus:
+			//handle notes stack
+			fillNotesStack(touchPosition, 1f);		
+		
+			if (notesStackCounter == 1f) 
+				StartCoroutine(checkNotesStack(touchPosition));
+						
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = (notesStackCounter%6f == 0f) ? 1f : (notesStackCounter%6);
+			else
+				noteNumber = (notesStackCounter%6f == 0f) ? 6f : (7f- notesStackCounter%6);
+					
+			// play the sound of the button depending on it's place in stack and (TODO) it's bonusButtonType	
+			noteButton = "NoteButton"+noteNumber.ToString();			
+			
+			// play the note
+			notesSequence.Enqueue(noteButton);
+			if (!isPlayingNotesSequence)
+				StartCoroutine(playNotes());
+			
+			scoreManager.ExtraPointsButton();
+			break;
+			
+		case ButtonType.Bonus2:
+			//handle notes stack
+			fillNotesStack(touchPosition, 2f);	
+		
+			if (notesStackCounter == 2f)  // if this was first button in the combo
+				StartCoroutine(checkNotesStack(touchPosition));
+						
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = ( (notesStackCounter-1f)%6f == 0f) ? 1f : ((notesStackCounter-1f)%6);
+			else
+				noteNumber = ( (notesStackCounter-1f)%6f == 0f) ? 6f : (7f- (notesStackCounter-1f)%6);
+		
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton); 
+			
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = (notesStackCounter%6f == 0f) ? 1f : (notesStackCounter%6);
+			else
+				noteNumber = (notesStackCounter%6f == 0f) ? 6f : (7f- notesStackCounter%6);
+						noteButton = "NoteButton"+noteNumber.ToString();
+			
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton); 
+			
+			if (!isPlayingNotesSequence)
+				StartCoroutine(playNotes());
+				
+			scoreManager.ExtraPointsButton();
+			break;
+			
+		case ButtonType.Bonus3:
+			//handle notes stack
+			fillNotesStack(touchPosition, 3f);		
+		
+			if (notesStackCounter == 3f) 
+				StartCoroutine(checkNotesStack(touchPosition));
+						
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = ( (notesStackCounter-2f)%6f == 0f) ? 1f : ((notesStackCounter-2f)%6);
+			else
+				noteNumber = ( (notesStackCounter-2f)%6f == 0f) ? 6f : (7f- (notesStackCounter-2f)%6);
+		
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton);
+			
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = ( (notesStackCounter-1f)%6f == 0f) ? 1f : ((notesStackCounter-1f)%6);
+			else
+				noteNumber = ( (notesStackCounter-1f)%6f == 0f) ? 6f : (7f- (notesStackCounter-1f)%6);
+		
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton);
+			
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = (notesStackCounter%6f == 0f) ? 1f : (notesStackCounter%6);
+			else
+				noteNumber = (notesStackCounter%6f == 0f) ? 6f : (7f- notesStackCounter%6);
+						noteButton = "NoteButton"+noteNumber.ToString();
+			
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton);
+			
+			
+			if (!isPlayingNotesSequence)
+				StartCoroutine(playNotes());
+			
+			
+			scoreManager.ExtraPointsButton();
+			
+			if (isExtraTimeOnNotes3)
+			{
+				StopCoroutine("timerCountdown");
+				audioPlayer.PlaySound("ExtraTimeOnNotes3",false);
+				timer += 2;
+				StartCoroutine("timerCountdown");
+			}
+			break;
+		
+		case ButtonType.ExtraNotes:
+			//handle notes stack
+			fillNotesStack(touchPosition, 3f);		
+		
+			if (notesStackCounter == 3f) 
+				StartCoroutine(checkNotesStack(touchPosition));
+						
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = ( (notesStackCounter-2f)%6f == 0f) ? 1f : ((notesStackCounter-2f)%6);
+			else
+				noteNumber = ( (notesStackCounter-2f)%6f == 0f) ? 6f : (7f- (notesStackCounter-2f)%6);
+		
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton);
+			
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = ( (notesStackCounter-1f)%6f == 0f) ? 1f : ((notesStackCounter-1f)%6);
+			else
+				noteNumber = ( (notesStackCounter-1f)%6f == 0f) ? 6f : (7f- (notesStackCounter-1f)%6);
+		
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton);
+			
+			if ( Mathf.FloorToInt(notesStackCounter/6f) % 2f == 0f )
+				noteNumber = (notesStackCounter%6f == 0f) ? 1f : (notesStackCounter%6);
+			else
+				noteNumber = (notesStackCounter%6f == 0f) ? 6f : (7f- notesStackCounter%6);
+						noteButton = "NoteButton"+noteNumber.ToString();
+			
+			noteButton = "NoteButton"+noteNumber.ToString();
+			notesSequence.Enqueue(noteButton);
+			
+			
+			if (!isPlayingNotesSequence)
+				StartCoroutine(playNotes());
+			
+			scoreManager.ExtraNotesButton(touchPosition);
+			
+			currNotesGathered += 350;
+			
+			break;
+			
+		case ButtonType.MinusPoints: 
+			
+			if (antiPowerOffsCount > 0)
+			{
+				if ( highestScoreWithoutPowerOff < ( (int)scoreManager.currScoreCount() - lastPowerOffScore ) )
+					highestScoreWithoutPowerOff = (int)scoreManager.currScoreCount() -lastPowerOffScore;
+				
+				if (!hadPoweroff)
+				{
+					highestScoreWithoutPowerOff = (int)scoreManager.currScoreCount();
+					hadPoweroff = true;
+				}
+				
+				lastPowerOffScore = (int)scoreManager.currScoreCount();
+				
+				
+				StartCoroutine(AntiPowerOff());
+				// start minus points button effect
+				StartCoroutine("MinusPointsButtonClicked",0.2f);
+			
+			}
+			else
+			{
+				resetNotesStack();
+				scoreManager.ResetMultiplier();
+				isComboOnDuringRegularTurn = false;
+			
+				// disable buttonMania
+				if (bgScroller.isDuringButtonMania)
+					bgScroller.stopButtonMania();
+			
+				if (isDuringButtonMania && !returnedFromButtonMania) //if minuspoints button pushed during buttonMania (!returnfrombutonmania is for making sure second hit on minus won't count)
+				{
+					returnedFromButtonMania = true;
+					resetComboZone();
+					stopButtonMania();
+				}
+			
+				// start minus points button effect
+				StartCoroutine("MinusPointsButtonClicked",1.5f);
+			
+				// score and sound effect
+				scoreManager.MinusPointsButton(touchPosition);
+				audioPlayer.PlaySound("MinusPoints", false);
+			
+				// disable the next combo if exists.
+				consecutivesCombos = 0;
+				isComboNextMove = false;
+			}
+			break;
+		
+		case ButtonType.Multiplier:
+			scoreManager.MultiplierButton(touchPosition);
+			audioPlayer.PlaySound("Multiplier", false);
+			break;
+			
+		case ButtonType.ButtonMania:
+			scoreManager.ManiaButton(touchPosition);
+			audioPlayer.PlaySound("ButtonMania", false); 
+			bgScroller.platesButtonMania();
+			bgScroller.startButtonMania();
+			startButtonMania();
+			break;
+			
+		case ButtonType.Freeze:
+			audioPlayer.PlaySound("Freeze", false);
+			audioPlayer.PlaySound("Snowing",false);
+			StartCoroutine(freeze());	
+			break;
+		}
+	}
+	
+	
+#if UNITY_IPHONE	
+	
+	private void HandleIphoneOnRotateAroundAxis(BoxRotation rotation, float rotateSize)
+	{		
+		swingBox.Rotate(rotation, rotateSize, isComboOn);
+		//CanMove = false;
+	}
+	
+	private void HandleBoxRotationLocked()
+	{
+		//CanMove = false;
+	}
+#endif
+	
+
+	private IEnumerator MinusPointsButtonClicked(float effectTime)
+	{
+    	float pauseEndTime 			= Time.realtimeSinceStartup + effectTime;
+		float BeatClipTimeStamp 	= audioPlayer.currTime(currLevelBeatSound);
+		float comboClipTimeStamp 	= audioPlayer.currTime(currLevelComboZoneSound);
+			
+		// slowdown time, plates movment and music clip pitch
+		Time.timeScale = 0.1f;
+		audioPlayer.SoundPitch(currLevelBeatSound,0.1f); 
+		audioPlayer.SoundPitch(currLevelComboZoneSound,0.1f); 
+		bgScroller.slowdownPlates();
+		while ( (Time.realtimeSinceStartup < pauseEndTime) || (pauseManager.paused && !isGameOver) )
+  		{
+        	yield return null;
+    	}
+    	
+		// return to regular time and movment
+		Time.timeScale = 1f;
+		
+		audioPlayer.PlaySoundFromPosition(currLevelBeatSound, BeatClipTimeStamp + 0.15f);
+		if ( audioPlayer.isPlaying(currLevelComboZoneSound) )
+			audioPlayer.PlaySoundFromPosition(currLevelComboZoneSound, comboClipTimeStamp + 0.15f);
+		
+		bgScroller.unpausePlates();
+		
+		audioPlayer.SoundPitch(currLevelBeatSound, 1f); 
+		audioPlayer.SoundPitch(currLevelComboZoneSound, 1f); 
+
+	}
+	
+	private void stopMinusPointsEffect()
+	{
+		StopCoroutine("MinusPointsButtonClicked");
+		
+		Time.timeScale = 1f;
+		bgScroller.unpausePlates();
+	}
+	
+	private IEnumerator timerCountdown()
+	{
+		float time = (float)timer;
+		
+		while (!isGameOver)
+		{
+			while (!isFreeze)
+			{
+				time -= Time.deltaTime;
+				timer = Mathf.CeilToInt(time);
+			
+				if (time <=0)
+				{
+					timer = 0;
+					isGameOver = true;
+					StopAllCoroutines();
+					StartCoroutine(gameOver());
+				}
+				yield return null;
+			}
+			yield return null;
+		}
+	}
+	
+	private IEnumerator levelTimerCountdown(float levelTime)
+	{
+		currLevelTime = levelTime;
+		
+		while (!isGameOver && currLevelTime > 0f)
+		{
+			if (!isFreeze)
+				currLevelTime -= Time.deltaTime;
+			
+			yield return null;
+		}
+		yield return null;
+	}
+	
+	
+	private IEnumerator freeze()
+	{
+		timerTabFreezer.freeze();
+
+		isFreeze = true;
+		float deltaT = 0f;
+		while (deltaT <= timerTabFreezer.freezeTime)
+		{
+			deltaT += Time.deltaTime;
+			yield return null;
+		}
+		
+		audioPlayer.PlaySound("Freeze",false);
+		audioPlayer.StopPlayingSound("Snowing");
+		timerTabFreezer.unfreeze();
+		isFreeze = false;
+		
+		yield return null;
+	}
+			
+	private IEnumerator startConsecutiveCombosParticles()
+	{
+		consecutiveCombosParticles.enableEmission = true;
+		//consecutiveCombosParticlesFront.enableEmission = true;
+		
+		yield return null;
+	}
+	
+	private void increaseConsecutiveCombosParticles(float addition)
+	{
+		if ( consecutiveCombosParticles.GetComponent<ParticleSystem>().emissionRate <= 6f)
+			consecutiveCombosParticles.GetComponent<ParticleSystem>().emissionRate += addition;
+		//if ( consecutiveCombosParticlesFront.GetComponent<ParticleSystem>().emissionRate <= 7)
+		//	consecutiveCombosParticlesFront.GetComponent<ParticleSystem>().emissionRate += addition;
+	}
+	
+	private IEnumerator stopConsecutiveCombosParticles()
+	{
+		consecutiveCombosParticles.GetComponent<ParticleSystem>().emissionRate = 0.5f;
+		//consecutiveCombosParticlesFront.GetComponent<ParticleSystem>().emissionRate = 4;
+		
+		consecutiveCombosParticles.enableEmission = false;
+		//consecutiveCombosParticlesFront.enableEmission = false;
+		
+		yield return null;
+	}
+	
+	
+	private IEnumerator gameClock() 
+	{
+		float time = 0f;
+		
+		while (!isGameOver)
+		{
+			time += Time.deltaTime;
+			gameTime = Mathf.CeilToInt(time);
+			
+			yield return null;
+		}
+	}
+		
+	public int showTimer()
+	{
+		return timer;	
+	}
+
+	private void HandleBoxShaken()
+	{
+		
+	}
+	
+	private void changeSpeakerEmittionTo(float targetEmittion, float time)
+	{
+		for(int i=0; i<bitParticle.Length; i++)
+		{
+			if (bitParticle[i].ColorName == currentColor.name)
+				bitParticle[i].ChangeEmittionTo(targetEmittion+2f, time);
+			else
+				bitParticle[i].ChangeEmittionTo(targetEmittion, time);
+		}
+	}
+	
+	private void StopEmittion()
+	{
+		for(int i=0; i<bitParticle.Length; i++)
+		{
+			bitParticle[i].stopEmittion();
+		}
+	}
+	
+	private void startEmittion(float emittionRate)
+	{
+		for(int i=0; i<bitParticle.Length; i++)
+		{
+			bitParticle[i].startEmittion(emittionRate);
+		}	
+	}
+	
+	public bool IsGameOver()
+	{
+		return isGameOver;
+	}
+	
+	public bool IsComboOn()
+	{
+		if (isComboOn || isComboNextMove)
+			return true;
+		
+		return false;
+	}
+	
+	
+	public int ConsecutiveCombos()
+	{
+		return consecutivesCombos;	
+	}
+	
+	public int ComboMoveLength()
+	{
+		return comboMoveLength;	
+	}
+	
+	public Membrane NextColor()
+	{
+		return nextColor;	
+	}
+	
+	public bool IsDuringTransition()
+	{
+		return isDuringTransition;	
+	}
+	
+	public bool canMoveBox()
+	{
+		return (CanMove && !isStartingGame && !isDuringButtonMania && !pauseManager.paused && !swingBox.duringCantMoveShake && !isDuringTransition) ? true : false;	
+	}
+	
+	public bool cantMoveBox()
+	{
+		return  ( (!CanMove || isStartingGame || isDuringButtonMania) && !pauseManager.paused && !swingBox.duringCantMoveShake ) ? true : false; 
+	}
+	
+	public System.Int64 returnCorrectMoves()
+	{
+		return (int)correctMoves;
+	}
+	
+	
+	private IEnumerator resetComboZoneWithDelay()
+	{
+		dontPlayNotesCombo = true;
+		resetComboZone();
+		
+		yield return new WaitForSeconds(1f); // delay before checking again if to reset - in cases where notesCombo was hit just before failing the move 
+		
+		resetComboZone();
+		
+		dontPlayNotesCombo = false;
+	}
+	
+	
+	private void stopButtonMania()
+	{
+		actionFlag 				= false;
+		actionMade 				= false;
+		colorMatch 				= false;
+		actionMade 				= false;
+		returnedFromButtonMania = true;	
+		
+		StartCoroutine("coroutineStopButtonMania");
+	}
+	
+	public void startButtonMania()
+	{
+		isDuringButtonMania 			= true;
+		CanMove 						= false;
+		waitingForRegularTurnResponse 	= false;
+		swingBox.TurnTime 				= 0.24f * moveBlockTime; // return to regular moveturn time
+
+		StopCoroutine("RegularTurn");
+		
+		//stop comboTurn
+		StopCoroutine("StartComboZone");
+		StopCoroutine("ComboTurn");
+		StopCoroutine ("playComboColors"); 
+		StopCoroutine ("playComboColorsDuringRegularTurn");
+		//colorFader.StartCoroutine("StopFading", 0.5f);
+		colorFader.StopFading(0.5f);
+		resetComboZoneForButtonMania();
+		
+		StartCoroutine("coroutineStartButtonMania");	
+	}
+	
+	
+	private IEnumerator coroutineStartButtonMania() 
+	{
+		 // wait for the happaning rotation to end
+		while (swingBox.isDuringRotation || swingBox.isDuringRandomRotate || swingBox.isDuringShake)
+		{
+			yield return null;
+		}	
+		
+		swingBox.startButtonMania();
+		swingBox.rotateWhileButtonMania(0.7f*moveBlockTime);
+	
+		// wait if exited button mania wave in middle of random rotate			
+		while (swingBox.isDuringRotation || bgScroller.isDuringButtonMania) 
+		{
+			yield return null;
+		}
+					
+		//---==== button mania finished !!!  ====-----///
+		// in the end of comboZone check if there is combo and fix the plates lights
+		if (IsComboOn())
+		{
+			StartCoroutine(bgScroller.platesComboZone(consecutivesCombos));
+			swingBox.startComboZone( (float)( ( ( (consecutivesCombos+1f) >= 6f) ? 6f : consecutivesCombos )  *0.25f) );
+		}
+		else
+		{
+			resetComboZone(); // inorder to reset the plates different colors of button mania phase
+			StartCoroutine(swingBox.moveToComboDepth(0.0f)); // move swingbox to regular z position
+		}
+		
+		swingBox.RandomRotate(audioPlayer.playBack(currLevelBeatSound, moveBlockTime));
+		yield return new WaitForSeconds (audioPlayer.playBack(currLevelBeatSound, moveBlockTime));
+		
+		isDuringButtonMania 	= false;
+		actionFlag 				= false;
+		actionMade 				= false;
+		colorMatch 				= false;
+		actionMade 				= false;
+		returnedFromButtonMania = true;		
+		CanMove 				= true;
+		
+		StartCoroutine("RegularTurn");
+	}
+	
+	private IEnumerator coroutineStopButtonMania()
+	{
+		
+		StopCoroutine("coroutineStartButtonMania");
+
+		while (swingBox.isDuringRotation || swingBox.isDuringRandomRotate || swingBox.isDuringShake ||swingBox.duringCantMoveShake)
+		{
+			yield return null;
+		}
+				
+		StartCoroutine(swingBox.moveToComboDepth(0.0f));
+
+		actionFlag				= false;
+		actionMade 				= false;
+		colorMatch 				= false;
+		actionMade 				= false;
+		returnedFromButtonMania = true;
+		
+		swingBox.RandomRotate(audioPlayer.playBack(currLevelBeatSound, moveBlockTime)); //*0.9
+		yield return new WaitForSeconds (audioPlayer.playBack(currLevelBeatSound, moveBlockTime));
+		
+		isDuringButtonMania 	= false;
+
+		StartCoroutine("RegularTurn");
+	}
+
+	
+	private void resetComboZoneForButtonMania()
+	{
+
+		StopCoroutine("ComboSoundEffects");
+		
+		// reset combo variables
+		actionCounterInCombo			= 0;
+		waitingForRegularTurnResponse 	= false;
+		isComboOnDuringRegularTurn 		= false;
+		
+		if (comboSequence.Count >= 2)
+		{
+			isComboNextMove 			= true;	
+			comboMoveLength				= comboSequence.Count;
+			comboSequence.Clear();
+		}
+		
+		else
+		{
+			isComboNextMove 			= false;	
+			comboMoveLength				= 0;
+		}
+
+	}
+	
+	
+	public bool isDuringButtonManiaWave()
+	{
+		return bgScroller.isDuringButtonMania;
+	}
+	
+	public bool isTutorialComplete()
+	{	
+		tutorialPref = (PlayerPrefs.HasKey("Tutorial")) ? PlayerPrefs.GetInt("Tutorial") : 0; // need to check here the PlayerPrefs!
+		
+		if ( (int)TutorialStep.Done == tutorialPref )
+		{
+			isDuringTutorial = false;
+			return true;
+		}
+		else
+			return false;
+		
+		//return ( (int)TutorialStep.Done == tutorialPref ) ? true : false;
+	}
+	
+	public bool isColorTutorialComplete()
+	{	
+		if (!tutorial.isColorTutorialComplete())
+		{
+			isDuringColorTutorial = true;
+			return false;
+		}
+		
+		isDuringColorTutorial = false;
+		return true;
+	}
+	
+	public bool isWaveAfterCombo()
+	{
+		if (turnsAfterCombo <= 4 && !(turnsAfterCombo == 0) )
+		{
+			turnsAfterCombo = turnsAfterCombo + Random.Range(1,3);			
+			return true;
+		}
+		
+		turnsAfterCombo = 0;
+		return false;
+	}
+	
+	private IEnumerator playNotes()
+	{
+		isPlayingNotesSequence = true;
+		string note;
+		
+		while (notesSequence.Count > 0)
+		{
+			note = notesSequence.Dequeue() as string;
+			audioPlayer.PlaySound(note, false);
+			yield return new WaitForSeconds(0.2f);
+		}
+		
+		isPlayingNotesSequence = false;
+		
+		yield return null; 
+	}
+	
+	private IEnumerator AntiPowerOff()
+	{
+		audioPlayer.PlaySound("AntiPowerOff",false);
+		yield return StartCoroutine(inventory.coroutineAppear());
+		
+		inventory.changeAmountAniPowerOffs(-1f);
+		antiPowerOffsCount -= 1f;
+		
+		yield return new WaitForSeconds(1f);
+		
+		StartCoroutine(inventory.coroutineDisappear());
+		
+		yield return null;
+	}
+	
+	private IEnumerator ExtraTimeOnNotes3()
+	{
+		yield return StartCoroutine(inventory.coroutineAppear());
+		
+		inventory.changeAmountExtraTime(-1f);
+		audioPlayer.PlaySound("ItemUsed",false);
+		yield return new WaitForSeconds(1f);
+		itemUsed.extraTimeOn();
+		
+		StartCoroutine(inventory.coroutineDisappear());
+		
+		yield return null;
+	}
+	
+	private void resetPlayNotes()
+	{
+		notesSequence.Clear();
+		isPlayingNotesSequence = false;
+		dontPlayNotesCombo = false;
+	}
+	
+	public bool isDuringFreeze()
+	{
+		return isFreeze;
+	}
+	
+	public int arcadeGameTimeLeft()
+	{
+		return timer;	
+	}
+	
+	private void savePrefNotesGathered()
+	{
+		PlayerPrefs.SetFloat("NotesGathered",currNotesGathered+lastCountOfNotesGathered);	
+	}
+	
+	public float showCurrNotesGathered()
+	{
+		return currNotesGathered;
+	}
+	
+	public float showLastCountOfNotesGathered()
+	{
+		return lastCountOfNotesGathered;
+	}
+	
+	
+	private IEnumerator TutorialTurn()
+	{		
+		tutorialCombo = true;
+		
+		if (firstTutorialCombo) // so that the timeToEmptyNotesStack will only increase once !
+		{
+			timeToEmptyNotesStack = timeToEmptyNotesStack *1.5f;
+			firstTutorialCombo = false;
+		}
+		
+		scoreManager.highScorePopUp(false); //don't show highscore popup during tutorial
+			
+		float 	waitForResponse;
+		float	slackTime;
+		
+		// start of regularTurn after Transition/Starting music
+		if (!returnedFromComboTurn && !returnedFromButtonMania)
+		{
+			// Play current beat
+			// Load the beat with delay - to avoid delay in soundtrack (that happended when loading after the beat before ended)
+			audioPlayer.PlaySound(currLevelBeatSound, musicLength*0.28f,false);  //0.28 test3 0.26
+			
+			// wait before starting next move.
+			yield return new WaitForSeconds(musicLength*0.28f); //0.28 test3
+		}
+				
+		// finished combo and there is no combo following this one -> continue with regularTurn and disable the returnFromCombo
+		if ( (returnedFromComboTurn)  && (!(isComboNextMove)) )
+			returnedFromComboTurn = false;
+		
+		returnedFromButtonMania = false;
+
+		if (isStartingGame)
+		{
+			isStartingGame = false;
+			CanMove =true;
+			
+			//if (gameType == GameType.Arcade)
+			//	StartCoroutine("timerCountdown");
+		}
+		
+			
+		while ( !isLevelCompleted )
+		{				
+			
+			if (!isDuringColorTutorial)
+			{
+				canMove = false;
+				bgScroller.startTutorialWave(tutorialWaveSize);
+				
+				while (!isComboNextMove)
+				{
+					canMove = false;
+					yield return null;
+				}
+				
+				bgScroller.stopTutorialWave();
+				
+			}
+			
+			if (isComboNextMove && !isDuringButtonMania) 
+			{
+				StartCoroutine ("StartTutorialComboZone", comboMoveLength);
+				yield break;
+			}
+			
+			nextColor = NextMembrane(currentColor);
+			iphoneManager.changeViewPortSection(nextColor.GetScreenSection());
+			
+			// decide what to do if tutorial havn't finish yet.
+			if (isDuringColorTutorial)
+			{
+				if (!isTutorialComplete())
+				{
+					// choose the colors that havnt been tutored yet
+					if (!isColorTutorialComplete()) 
+					{
+						while ( !(tutorial.isThisColorTutorialCompleted((TutorialStep)nextColor.GetScreenSection())) && !tutorial.isColorTutorialComplete() )
+						{
+							yield return null;
+
+							nextColor = NextMembrane(currentColor);
+							iphoneManager.changeViewPortSection(nextColor.GetScreenSection());
+						}
+					}
+				}
+			}
+	
+			TutorialManager.ShowTutorialStep((TutorialStep)nextColor.GetScreenSection());
+			startEmittion(normalEmittion);
+			
+			// Set the time to wait for the user to make his move
+			waitForResponse = responseTime;
+			
+			// Play next color sound & display the indication
+			audioPlayer.PlaySoundNoFadeIn(nextColor.Name, false);
+			
+			actionTimerManager.setFull();
+			actionTimerManager.startEmptyActionTimer(responseTime);
+			colorFader.FadeTo(nextColor.color, responseTime);
+			notificationParticels.play(nextColor,isFreeze);
+			waitingForRegularTurnResponse = true;		
+			timeToWaitForComboNextColor = 0f;
+			
+			while ( !swingBox.isDuringPush && !swingBox.isDuringRotation && waitForResponse > 0 )
+			{ 
+				yield return null;
+				
+				//if (!isDuringColorTutorial)
+					waitForResponse -= Time.deltaTime;
+				
+				timeToWaitForComboNextColor += Time.deltaTime;
+			}
+			
+			if (actionMade) // actionMade is set true from swingBox when the box turns
+			{
+				while (!actionFlag || (notesStackCounter > 0) ) // wait until the actionFlag (collider activated) is raised and wait if the player is in the middle of catching combo to the start of the combo
+					yield return null;			
+			}	
+			
+			colorFader.StopFading(waitForResponse + turnTime + minimumSlackTime);
+						
+			// Was input received during wait? if yes, wait for the box to finish turning
+			if ( actionMade )
+			{
+				actionTimerManager.stopEmptyActionTimer();
+				
+				// Wait until the box has stopped AND not in middle of noteCombo strike
+				while( !boxStopped && (swingBox.isDuringPush || swingBox.isDuringRotation) )
+				{
+					yield return null;
+				}
+			}
+			
+			waitingForRegularTurnResponse = false; // the time to activate consecutive comboZone is finished
+			
+			// if comboZone OR buttonMaina was activated wait untill it stops this coroutine
+			while (isComboOnDuringRegularTurn || isDuringButtonMania)// || notesStackCounter>0)
+			{
+				yield return null;
+			}
+			
+			
+			// stop comboZone after the first regularTurn after it, if no comboZone was activated before the move finish
+			if (isComboOn && !isComboNextMove)
+			{
+				resetComboZone();
+				//turnsAfterCombo = 1;
+			}
+
+
+			// User made a fault (no response or wrong response)
+			if ( !colorMatch || !actionMade )
+			{			
+				scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.1f),SwingBoxTexts.text5);
+
+				tutorial.KillCurrentTutorialStep();
+
+				// reset variables on failing
+				scoreManager.ResetConsecutiveMoves();
+				scoreManager.ResetMultiplier();
+				actionCounter 	= 0;
+				
+				slackTime 		= audioPlayer.playBack(currLevelBeatSound, moveBlockTime);
+				// extend slacktime in case of wrong action in short slacktime - to make sure user understand fault
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				
+				StartCoroutine(resetComboZoneWithDelay());
+				
+				// fail sound, graphic and vibrate effect
+				swingBox.Shake(slackTime);
+				#if UNITY_IPHONE
+					//if (gameType == GameType.Survival) { iPhoneUtils.Vibrate(); }
+				#endif
+				audioPlayer.PlaySound(failSound, false);
+				StopEmittion();
+				
+				// Check lives
+				if (!(gameType == GameType.Arcade) && !isDuringColorTutorial)
+					if ( !livesManager.HasLives() ) // GAME OVER!
+						isGameOver = true;
+			}
+			
+			// 2. User acted correctly -
+			else 
+			{	
+				tutorial.GotLastTutorialStepRight();
+
+				slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime);
+				swingBox.RandomRotate(slackTime);
+				correctMoves++;
+				//correctMovesInLevel++;
+				changeSpeakerEmittionTo(successEmittion, slackTime);
+				scoreManager.RegularMove();
+				
+				if (isColorTutorialComplete())
+				{
+					scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.1f),SwingBoxTexts.text1);
+					if (gameType == GameType.Survival && PlayerPrefs.GetInt("HelpScreenOnClassicTutorial") != 1)
+					// load screenshots tutorial 
+						pauseManager.loadHelpScreen(false,2,3);
+		
+					if (gameType == GameType.Arcade && PlayerPrefs.GetInt("HelpScreenOnArcadeTutorial") != 1)
+					// load screenshots tutorial 
+						pauseManager.loadHelpScreen(false,2,3);
+				}
+				else
+					scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.1f),SwingBoxTexts.text0);
+					
+			}
+				
+
+			if ( !isGameOver) // next turn
+			{		
+				
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+				swingBox.TurnTime		= 0.24f * moveBlockTime;
+				
+				yield return new WaitForSeconds(slackTime); 
+				
+				if ( isLevelCompleted )
+					StartCoroutine(StartNextLevel());
+					
+			}
+			else // GAME OVER!
+			{
+				isLevelCompleted = true; // end the loop of colors
+				stopMinusPointsEffect();
+		    	StartCoroutine(gameOver());
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+			}	
+		}
+	}
+	
+
+	private IEnumerator ComboTutorialTurn()
+	{		
+		canMove = true;
+		
+		float 	waitForResponse;
+		float 	slackTime;
+		int 	comboLength 	= comboSequence.Count;	
+		comboMoveContinues 		= true;
+		swingBox.TurnTime 		= 0.5f * (moveBlockTime / 4f ); // 4 colors per block 
+		
+		slackTime = 0f; // define for later use with islevelcomplete
+		
+		waitForResponse = responseTime; //(moveBlockTime /2f);
+				
+		// while in combo there is only waitForResponse time between colors (no use of slackTime)
+		while ( comboMoveContinues )
+		{
+			waitForResponse = responseTime;//moveBlockTime/2f;// responseTime;
+			
+			nextColor 	= comboSequence.Dequeue() as Membrane;
+			iphoneManager.changeViewPortSection(nextColor.GetScreenSection());
+			
+			actionTimerManager.setFull();
+			actionTimerManager.startEmptyActionTimer(responseTime);
+			
+			//extra Measure to make sure comboZone music is playing
+			if (!audioPlayer.isPlaying(currLevelComboZoneSound) )
+				StartCoroutine("ComboSoundEffects");
+						
+			waitingForRegularTurnResponse = false;
+						
+			// Wait for the user to make his move
+			while ( !swingBox.isDuringPush && !swingBox.isDuringRotation && waitForResponse > 0 )
+			{ 
+				yield return null;
+				waitForResponse -= Time.deltaTime; 
+			} 
+						
+			// make sure to wait for the action's color before deciding - wrong or right
+			if (actionMade)
+			{
+				actionTimerManager.stopEmptyActionTimer();
+				while (!actionFlag)
+				{
+					yield return null;
+				}
+			}
+			
+			// Was input received during wait? (shorten SlackTime while box turns)
+			if ( actionMade )
+			{
+				// Wait until the box has stopped
+				while( !boxStopped && (swingBox.isDuringPush || swingBox.isDuringRotation) )
+				{
+					yield return null;
+				}
+			}
+					
+			timeToNextTurn = audioPlayer.playBackOfTotalClip(currLevelBeatSound);
+			
+			// -------- Do we have a match Did the user act in time? -------////
+			// 1. User made correct move 
+			if ( colorMatch && actionMade )
+			{			
+				// 1.1 Still have more items in sequence?
+				if ( comboSequence.Count > 0 )
+				{	
+					scoreManager.RegularMove();
+					// set the waitForResponseTime for next move in sequence
+					waitForResponse = responseTime; //(moveBlockTime /2f);
+				}
+				
+				// 1.2 Successful combo - Combo sequence finished successfuly !
+				else
+				{
+					// Time to next beat is the remaining time of the currently playing beat.
+					// if the remaining time is lower then 0.3*blockTime wait and play the beatblock again
+					slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime); 
+							
+					if (slackTime < moveBlockTime * 0.4f)
+						slackTime += moveBlockTime;
+					
+					// long slack time for finish tutorial msg.
+					//slackTime = slackTime*1.5f;
+					
+					correctMoves++;
+					currentCorrectCombos++;
+					//correctMovesInLevel++;
+					bgScroller.speedUpPlates(0.0025f, false);
+					
+					consecutivesCombos++; // first combo is 1
+					float comboSuccessSoundCounter = (consecutivesCombos%6 == 0f) ? 6f : (consecutivesCombos%6);
+					
+					actionCounterInCombo = 0;
+
+					comboMoveContinues = false;
+					
+					changeSpeakerEmittionTo(successEmittion+Mathf.Ceil(comboSuccessSoundCounter/2f), slackTime);
+					
+					audioPlayer.PlaySound("ComboSuccess"+comboSuccessSoundCounter, false);
+					swingBox.RandomRotate(slackTime);
+					
+					if (comboLength == 2)
+					{
+						if (tutorialWaveSize == 2)
+						{
+							tutorialWaveSize += 1;
+							scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.1f),SwingBoxTexts.text2+"\n "+SwingBoxTexts.text34);
+
+							yield return new WaitForSeconds(slackTime);
+							
+							resetComboZone();
+							
+							StartCoroutine("TutorialTurn");	
+						}
+						else // meaning 3
+						{
+							scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.1f),SwingBoxTexts.text5+"\n "+SwingBoxTexts.text34);
+
+							yield return new WaitForSeconds(slackTime);
+							
+							resetComboZone();
+							StartCoroutine("TutorialTurn");	
+						}
+					}
+					else // meaing caught combo 3
+					{
+						// long slack time for finish tutorial msg.
+						//slackTime = slackTime*2f;
+						
+						tutorialCombo = false;
+					
+						//notification.popupTime = notification.popupTime +(notification.popupTime/3f);
+						//scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.5f),SwingBoxTexts.text0+"\n"+SwingBoxTexts.text3+"\n"+SwingBoxTexts.text35+"\n"+SwingBoxTexts.text4);
+					
+						yield return new WaitForSeconds(slackTime*0.2f); 
+					
+						TutorialManager.GotButtonTutorialRight();
+						
+						isComboOnDuringRegularTurn = false;
+						returnedFromComboTurn 	= true;	
+					
+						timeToEmptyNotesStack = timeToEmptyNotesStack /1.5f;
+						notification.popupTime = notification.popupTime /4f;
+					
+						returnedFromTutorial = true;
+						
+						if (gameType == GameType.Survival && PlayerPrefs.GetInt("HelpScreenOnClassicTutorial") != 1)
+						// load screenshots tutorial 
+							pauseManager.loadHelpScreen(false,3,7);
+		
+						if (gameType == GameType.Arcade && PlayerPrefs.GetInt("HelpScreenOnArcadeTutorial") != 1)
+						// load screenshots tutorial 
+							pauseManager.loadHelpScreen(false,3,7);
+						
+						yield return new WaitForSeconds(slackTime*0.9f);
+						
+						// finish helpscreentutorial
+						if (PlayerPrefs.GetString("GameType") == "Survival")
+							PlayerPrefs.SetInt("HelpScreenOnClassicTutorial",1);
+						else
+							PlayerPrefs.SetInt("HelpScreenOnArcadeTutorial",1);
+		
+						// tutorial completed
+						if (gameType == GameType.Arcade)
+						{
+							StartCoroutine("timerCountdown");
+							StopCoroutine("levelTimerCountdown");
+							StartCoroutine("levelTimerCountdown",levels[currentLevel].aracdeLevelTime);
+						}
+						scoreManager.ResetConsecutiveMoves(); // so will not pass level right after tutorial!
+						StartCoroutine("RegularTurn");
+					}
+						
+					
+					/*isComboOnDuringRegularTurn = false;
+					returnedFromComboTurn 	= true;	
+					
+					timeToEmptyNotesStack = timeToEmptyNotesStack /1.5f;
+					notification.popupTime = notification.popupTime /4f;
+					
+					returnedFromTutorial = true;
+					StartCoroutine("RegularTurn");*/
+				}
+				
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+			}
+			// 2. No match or failed to act in time
+			else 
+			{	
+				if (tutorialWaveSize == 2)
+					scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.1f),SwingBoxTexts.text5+"\n "+SwingBoxTexts.text1);
+				else 
+					scoreManager.tutorialPopupNotification(new Vector2(0.5f,0.1f),SwingBoxTexts.text5+"\n "+SwingBoxTexts.text34);
+
+
+				// Time to next beat is the remaining time of the currently playing beat.
+				// if the remaining time is lower then 0.3*blockTime wait and play the beatblock again
+				slackTime = audioPlayer.playBack(currLevelBeatSound, moveBlockTime); 
+								
+				// extend slacktime in case of wrong action in short slacktime - to make sure user understand fault
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+				if (slackTime < 1f)
+					slackTime += moveBlockTime;
+
+				actionCounterInCombo = 0;
+				
+				// stop comboZone
+				// stop the audio playing of the comobo colors and the color fading
+				//StopCoroutine ("playComboColors"); 
+				//StopCoroutine ("playComboColorsDuringRegularTurn");
+				//colorFader.StartCoroutine("StopFading", slackTime);
+				colorFader.StopFading(slackTime);
+				resetComboZone(); 				
+					
+				audioPlayer.PlaySound(failSound, false); 
+				//turnsAfterCombo = 1;
+				
+				swingBox.Shake(slackTime);
+				#if UNITY_IPHONE	 	
+					//if (gameType == GameType.Survival) { iPhoneUtils.Vibrate(); }
+				#endif
+				scoreManager.ResetConsecutiveMoves();
+				scoreManager.ResetMultiplier();
+
+				colorMatch = false;
+				actionFlag = false;
+				actionMade = false;
+				
+				isComboOnDuringRegularTurn = false;
+				returnedFromComboTurn 	= true;				
+				StartCoroutine("TutorialTurn");		
+				
+			}
+		}
+		yield return null;
+	}
+	
+	private IEnumerator StartTutorialComboZone(int comboLength)
+	{	
+		Queue comboPlaySequence = new Queue();
+		comboSequence			= new Queue();
+		isComboNextMove 		= false;
+		isComboOn 				= true;
+		Membrane tempMembrane 	= currentColor;
+					
+		for(int i=0; i<comboLength; i++)
+		{
+			tempMembrane = NextMembrane(tempMembrane);
+			comboSequence.Enqueue(tempMembrane);	
+			comboPlaySequence.Enqueue(tempMembrane);
+		}
+		
+		colorMatch = false;
+		actionFlag = false;
+		
+		yield return new WaitForSeconds(0.8f);
+		
+		StartCoroutine("ComboTutorialTurn");
+		
+		// playComboColors in difference Coroutine so i can stop it if combo fails in the middle
+		StartCoroutine("playComboColors", comboPlaySequence); 
+
+		yield break;
+	}
+	
+	public bool IsDuringTutorial()
+	{
+		return isDuringTutorial;
+	}
+	
+	public bool isSwingGameButtonMaina()
+	{
+		return isDuringButtonMania;
+	}
+	
+	public int currTutorialWaveSize()
+	{
+		 return tutorialWaveSize;
+	}
+	
+	public void lostBatteryPower()
+	{
+		if ( highestScoreWithoutLoosingPower < ( (int)scoreManager.currScoreCount() - lastPowerLostScore) )
+			highestScoreWithoutLoosingPower = ( (int)scoreManager.currScoreCount() - lastPowerLostScore); 
+				
+		if (!lostPower)
+		{
+			highestScoreWithoutLoosingPower = (int)scoreManager.currScoreCount(); 
+			lostPower = true;
+		}
+		
+		lastPowerLostScore = (int)scoreManager.currScoreCount() ;
+	}
+	
+	public bool checkAchiev1()
+	{
+		if (PlayerPrefs.GetInt("Achiev1",0) == 0)
+		{
+			
+		float achievLevelPrecentage = PlayerPrefs.GetFloat("achievLevelPrecentage",0f);
+		if (achievLevelPrecentage == 66f)
+			achievLevelPrecentage = 67f;
+			
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 1 )
+		{
+			if (scoreManager.currScoreCount() >= 500)
+			{
+				PlayerPrefs.SetInt ("Achiev1",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"1",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 2 )
+		{
+			if (scoreManager.HighestMultiplier >= 2)
+			{
+				PlayerPrefs.SetInt ("Achiev1",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"2",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 3 )
+		{
+			if (highestScoreWithoutLoosingPower >= 1000)
+			{
+				PlayerPrefs.SetInt ("Achiev1",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"3",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 4 )
+		{
+			if ( (highestScoreWithoutPowerOff >= 1200) || (!hadPoweroff && (int)scoreManager.currScoreCount() >= 1200) )
+			{
+				PlayerPrefs.SetInt ("Achiev1",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"4",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 5 )
+		{
+			if (scoreManager.currScoreCount() >= 2500 )
+			{
+				PlayerPrefs.SetInt ("Achiev1",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"5",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+			
+		}
+		
+		return false;
+		
+	}
+	
+	public bool checkAchiev2()
+	{
+		if (PlayerPrefs.GetInt("Achiev2",0) == 0)
+		{
+			
+		float achievLevelPrecentage = PlayerPrefs.GetFloat("achievLevelPrecentage",0f);
+		if (achievLevelPrecentage == 66f)
+			achievLevelPrecentage = 67f;
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 1 )
+		{
+			if (longestCombo >= 3)
+			{
+				PlayerPrefs.SetInt ("Achiev2",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"1",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 2 )
+		{
+			if (currentLevel+1 >= 3)
+			{
+				PlayerPrefs.SetInt ("Achiev2",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"2",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 3 )
+		{
+			if (longestCombosRow >= 3)
+			{
+				PlayerPrefs.SetInt ("Achiev2",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"3",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 4 )
+		{
+			if (longestCombosRow >= 5)
+			{
+				PlayerPrefs.SetInt ("Achiev2",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"4",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 5 )
+		{
+			if (longestCombo >= 5)
+			{
+				PlayerPrefs.SetInt ("Achiev2",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"5",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+			
+		}
+		
+		return false;
+	}
+	
+	public bool checkAchiev3()
+	{
+		if (PlayerPrefs.GetInt("Achiev3",0) == 0)
+		{
+			
+		float achievLevelPrecentage = PlayerPrefs.GetFloat("achievLevelPrecentage",0f);
+		if (achievLevelPrecentage == 66f)
+			achievLevelPrecentage = 67f;
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 1 )
+		{
+			if (scoreManager.returnLongestMovesSequence() >= 12)
+			{
+				PlayerPrefs.SetInt ("Achiev3",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"1",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 2 )
+		{
+			if (scoreManager.currScoreCount() >= 1000)
+			{
+				PlayerPrefs.SetInt ("Achiev3",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"2",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 3 )
+		{
+			if (scoreManager.returnLongestMovesSequence() >= 20)
+			{
+				PlayerPrefs.SetInt ("Achiev3",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"3",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 4 )
+		{
+			if (currentLevel + 1 >= 4)
+			{
+				PlayerPrefs.SetInt ("Achiev3",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"4",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+				return true;
+			}
+		}
+		
+		if ( PlayerPrefs.GetInt("currAchievLevel",1) == 5 )
+		{
+			if (scoreManager.returnLongestMovesSequence() >= 32)
+			{
+				PlayerPrefs.SetInt ("Achiev3",1);
+				
+				GameCenterBinding.reportAchievement(MenuManager.StaticAchievLevel+"5",achievLevelPrecentage+33f);
+				PlayerPrefs.SetFloat("achievLevelPrecentage",achievLevelPrecentage+33f);
+				
+
+				return true;
+			}
+		}
+		
+		}
+		
+		return false;
+	}
+	
+	
+	public bool achievLevelCompleted()
+	{
+		if ( (PlayerPrefs.GetInt("Achiev1",0) == 1)	&& (PlayerPrefs.GetInt("Achiev2",0) == 1) && (PlayerPrefs.GetInt("Achiev3",0) == 1) )
+		{
+			PlayerPrefs.SetInt("currAchievLevel", (PlayerPrefs.GetInt("currAchievLevel",1) + 1) );
+			PlayerPrefs.SetInt("Achiev1",0);
+			PlayerPrefs.SetInt("Achiev2",0);
+			PlayerPrefs.SetInt("Achiev3",0);
+			PlayerPrefs.SetFloat("achievLevelPrecentage",0f);
+			audioPlayer.PlaySound("AchievLevelCompleted",false);
+			
+			return true;
+		}
+		
+		return false;
+	}
+	
+}
